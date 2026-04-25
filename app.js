@@ -205,7 +205,7 @@ function generateDemoData(dateISO) {
 function exportCSV(rows, filename) {
   const headers = [
     'submitted_at','report_date','is_late','dealer_code','dealer_name',
-    'region','submitted_by','direction','model_bucket',
+    'region','submitted_by','direction','is_complete_submission','model_bucket',
     'enquiry','test_drives','new_sold','fleet_5_plus','demo_sold','forecast'
   ];
   const escape = v => {
@@ -218,6 +218,7 @@ function exportCSV(rows, filename) {
     lines.push([
       r.submitted_at, r.report_date, r.is_late ? 'TRUE' : 'FALSE',
       r.dealer_code, r.dealer_name, r.region, r.submitted_by, r.direction,
+      r.is_complete_submission ? 'TRUE' : 'FALSE',
       r.model_bucket, r.enquiry, r.test_drives, r.new_sold,
       r.fleet, r.demo_sold, r.forecast,
     ].map(escape).join(','));

@@ -362,6 +362,28 @@
         background: #F4F4F4 !important;
       }
     }
+
+    /* ── Activity Feed Layer (matches current OEM styling) ── */
+    .quick-entry-card { border-top: 3px solid #111; }
+    .quick-entry-grid { display:grid; grid-template-columns:1.35fr 1fr 92px 116px 116px; gap:10px; align-items:end; }
+    .quick-entry-actions { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+    .quick-btn { height:40px; border:1px solid #DCDCDC; background:#fff; color:#111; font-family:var(--font); font-size:12px; font-weight:900; letter-spacing:0.08em; text-transform:uppercase; cursor:pointer; border-radius:0; }
+    .quick-btn:hover { border-color:#C41230; color:#C41230; }
+    .quick-btn.primary { background:#111; color:#fff; border-color:#111; }
+    .quick-btn.primary:hover { background:#C41230; border-color:#C41230; color:#fff; }
+    .quick-btn.danger { color:#C41230; }
+    .quick-summary { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:12px; padding-top:12px; border-top:1px solid #EFEFEF; font-size:11px; color:#777; }
+    .quick-summary strong { color:#111; }
+    .draft-pill { display:inline-flex; align-items:center; gap:6px; padding:3px 8px; background:#F5F5F5; color:#666; font-size:10px; font-weight:900; letter-spacing:0.08em; text-transform:uppercase; }
+    .activity-log { margin-top:10px; display:grid; gap:6px; max-height:138px; overflow:auto; }
+    .activity-log-row { display:grid; grid-template-columns:1fr auto auto; gap:8px; align-items:center; background:#F7F7F7; border:1px solid #EFEFEF; padding:7px 9px; font-size:12px; }
+    .activity-log-main { font-weight:800; color:#111; }
+    .activity-log-meta { color:#777; font-size:11px; }
+    .activity-log-empty { color:#999; font-size:12px; padding:4px 0; }
+    .quick-jump-note { font-size:12px; color:#777; margin:4px 0 0; line-height:1.45; }
+    @media (max-width:900px) { .quick-entry-grid { grid-template-columns:1fr 1fr; } }
+    @media (max-width:599px) { .quick-entry-grid { grid-template-columns:1fr; gap:12px; } .quick-entry-actions { grid-template-columns:1fr 1fr; } .quick-btn { height:46px; } .quick-summary { align-items:flex-start; flex-direction:column; } .activity-log-row { grid-template-columns:1fr; } }
+
 </style>
 </head>
 <body>
@@ -455,6 +477,22 @@
           <input type="hidden" id="direction-val" value="">
         </div>
       </div>
+    </div>
+
+
+    <!-- Quick Activity Entry -->
+    <div class="card quick-entry-card" id="quick-entry-card">
+      <div class="card-title" style="margin-bottom:8px;">Quick Activity Entry</div>
+      <p class="quick-jump-note">Fast mode: select the model and activity, then add the quantity. The model grid below updates automatically, so dealers can use either method.</p>
+      <div class="quick-entry-grid" style="margin-top:14px;">
+        <div class="form-field"><label class="form-label" for="quick-model">Model Bucket</label><select class="form-select" id="quick-model"><option value="">— Select model —</option></select></div>
+        <div class="form-field"><label class="form-label" for="quick-metric">Activity Type</label><select class="form-select" id="quick-metric"><option value="enquiry">Enquiry</option><option value="test_drives">Test Drives</option><option value="new_sold">New Sold</option><option value="fleet">Fleet (5+)</option><option value="demo_sold">Demo Sold</option><option value="forecast">Forecast</option></select></div>
+        <div class="form-field"><label class="form-label" for="quick-qty">Qty</label><input class="form-input" type="number" id="quick-qty" min="0" step="1" value="1" inputmode="numeric"></div>
+        <div class="quick-entry-actions"><button type="button" class="quick-btn" id="quick-minus">−1</button><button type="button" class="quick-btn" id="quick-plus">+1</button></div>
+        <div class="quick-entry-actions"><button type="button" class="quick-btn primary" id="quick-add">Add</button><button type="button" class="quick-btn danger" id="quick-clear">Clear</button></div>
+      </div>
+      <div class="quick-summary"><div><strong id="quick-active-count">0</strong> active model buckets today · <strong id="quick-entry-count">0</strong> quick entries logged</div><div class="draft-pill" id="draft-status">Draft not saved yet</div></div>
+      <div class="activity-log" id="activity-log"><div class="activity-log-empty">No quick activity entered yet.</div></div>
     </div>
 
     <!-- Live totals (sticky) -->
@@ -567,12 +605,16 @@ const MODEL_GROUPS = {
 let selectedDirection = '';
 let gridData = {};   // { modelName: { enquiry:0, test_drives:0, ... } }
 let submittedDealerCodes = new Set();
+let quickActivityLog = [];
+let activeReportDate = reportingDateISO();
+let draftSaveTimer = null;
 
 /* ── Init ────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', init);
 
 function init() {
   buildModelGrid();
+  initQuickEntry();
   setDateFields();
   startClock();
   checkLateStatus();
@@ -586,16 +628,16 @@ function init() {
     const sel = document.getElementById('dealer-select');
     if (savedDealer && Array.from(sel.options).some(o => o.value === savedDealer)) {
       sel.value = savedDealer;
-      loadForecastForSelectedDealer();
+      loadForecastForSelectedDealer().then(loadDraftForSelectedDealer);
     }
     updateSubmitPreview();
   });
 
   document.getElementById('dealer-select').addEventListener('change', () => {
     updateSubmitPreview();
-    loadForecastForSelectedDealer();
+    loadForecastForSelectedDealer().then(loadDraftForSelectedDealer);
   });
-  document.getElementById('submitted-by').addEventListener('input', updateSubmitPreview);
+  document.getElementById('submitted-by').addEventListener('input', () => { updateSubmitPreview(); queueDraftSave(); });
   document.getElementById('sales-form').addEventListener('submit', handleSubmit);
   scheduleDealerResetRefresh();
 }
@@ -727,6 +769,8 @@ function onGridInput(input, model, col) {
   gridData[model][col] = val;
   updateRowTotal(model);
   updateLiveTotals();
+  updateQuickSummary();
+  queueDraftSave();
   if (col === 'forecast') saveForecastForSelectedDealer();
 }
 
@@ -771,6 +815,7 @@ function setDirection(val) {
   document.querySelectorAll('.direction-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.val === val);
   });
+  queueDraftSave();
 }
 
 /* ── Date / clock ────────────────────────────────────────── */
@@ -853,6 +898,7 @@ function buildRows() {
     region:       GWM_CONFIG.region,
     submitted_by: name,
     direction:    direction,
+    is_complete_submission: isCompleteSubmission(),
     model_bucket: model,
     enquiry:      gridData[model].enquiry,
     test_drives:  gridData[model].test_drives,
@@ -913,6 +959,7 @@ function handleSuccess(rows) {
   localStorage.setItem('gwm_dealer', document.getElementById('dealer-select').value);
   localStorage.setItem('gwm_name',   document.getElementById('submitted-by').value.trim());
   saveForecastForSelectedDealer();
+  clearDraftForSelectedDealer();
   submittedDealerCodes.add(document.getElementById('dealer-select').value);
 
   // Save to local history (for offline dashboard demo)
@@ -1001,6 +1048,146 @@ async function loadForecastForSelectedDealer() {
   applyForecastMap(forecast || {});
 }
 
+
+/* ── Quick activity entry + live draft ───────────────────── */
+function initQuickEntry() {
+  const modelSel = document.getElementById('quick-model');
+  MODEL_BUCKETS.forEach(model => {
+    const opt = document.createElement('option');
+    opt.value = model;
+    opt.textContent = model;
+    modelSel.appendChild(opt);
+  });
+  document.getElementById('quick-add').addEventListener('click', addQuickActivity);
+  document.getElementById('quick-plus').addEventListener('click', () => bumpQuickQty(1));
+  document.getElementById('quick-minus').addEventListener('click', () => bumpQuickQty(-1));
+  document.getElementById('quick-clear').addEventListener('click', clearQuickEntryFields);
+  document.getElementById('quick-qty').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); addQuickActivity(); }
+  });
+  updateQuickSummary();
+  renderActivityLog();
+  scheduleReportingDayWatcher();
+}
+function bumpQuickQty(delta) {
+  const qtyEl = document.getElementById('quick-qty');
+  qtyEl.value = String(Math.max(0, safeInt(qtyEl.value) + delta));
+}
+function clearQuickEntryFields() {
+  document.getElementById('quick-model').value = '';
+  document.getElementById('quick-metric').value = 'enquiry';
+  document.getElementById('quick-qty').value = '1';
+}
+function addQuickActivity() {
+  const model = document.getElementById('quick-model').value;
+  const metric = document.getElementById('quick-metric').value;
+  const qty = safeInt(document.getElementById('quick-qty').value);
+  if (!model) { showToast('Select a model bucket first.', 'error'); document.getElementById('quick-model').focus(); return; }
+  if (qty <= 0) { showToast('Enter a quantity greater than zero.', 'error'); document.getElementById('quick-qty').focus(); return; }
+  const current = safeInt(gridData[model][metric]);
+  const next = metric === 'forecast' ? qty : current + qty;
+  setGridValue(model, metric, next, true);
+  quickActivityLog.unshift({ model, metric, qty, mode: metric === 'forecast' ? 'set' : 'add', ts: new Date().toISOString() });
+  quickActivityLog = quickActivityLog.slice(0, 20);
+  renderActivityLog();
+  updateQuickSummary();
+  queueDraftSave();
+  if (metric === 'forecast') saveForecastForSelectedDealer();
+  showToast(metric === 'forecast' ? 'Forecast updated.' : 'Activity added.', 'success', 1800);
+}
+function setGridValue(model, col, value, focusRow) {
+  if (!gridData[model]) return;
+  const val = Math.max(0, safeInt(value));
+  gridData[model][col] = val;
+  const inp = Array.from(document.querySelectorAll('.grid-input')).find(el => el.getAttribute('data-model') === model && el.getAttribute('data-col') === col);
+  if (inp) { inp.value = String(val); inp.classList.toggle('nonzero', val > 0); }
+  updateRowTotal(model);
+  updateLiveTotals();
+  updateQuickSummary();
+  if (focusRow) flashModelRow(model);
+}
+function flashModelRow(model) {
+  const row = Array.from(document.querySelectorAll('tr[data-model]')).find(el => el.getAttribute('data-model') === model);
+  if (!row) return;
+  row.style.outline = '2px solid #C41230'; row.style.outlineOffset = '-2px';
+  clearTimeout(row._flashTimer);
+  row._flashTimer = setTimeout(() => { row.style.outline = ''; row.style.outlineOffset = ''; }, 900);
+}
+function metricLabel(metric) {
+  const found = GRID_COLS.find(c => c.key === metric);
+  return found ? found.label : metric;
+}
+function renderActivityLog() {
+  const el = document.getElementById('activity-log');
+  if (!el) return;
+  if (!quickActivityLog.length) { el.innerHTML = '<div class="activity-log-empty">No quick activity entered yet.</div>'; return; }
+  el.innerHTML = quickActivityLog.map(item => {
+    const time = formatTime(item.ts);
+    const action = item.mode === 'set' ? 'set to ' : '+';
+    return `<div class="activity-log-row"><div><div class="activity-log-main">${escapeHtml(item.model)}</div><div class="activity-log-meta">${escapeHtml(metricLabel(item.metric))} ${action}${item.qty}</div></div><div class="activity-log-meta">${time}</div><button type="button" class="quick-btn danger" style="height:30px;padding:0 8px;font-size:10px;" onclick="removeActivityLogItem('${item.ts}')">Remove</button></div>`;
+  }).join('');
+}
+function removeActivityLogItem(ts) {
+  quickActivityLog = quickActivityLog.filter(item => item.ts !== ts);
+  renderActivityLog(); updateQuickSummary(); queueDraftSave();
+}
+function updateQuickSummary() {
+  const active = MODEL_BUCKETS.filter(model => GRID_COLS.some(col => safeInt(gridData[model]?.[col.key]) > 0)).length;
+  const activeEl = document.getElementById('quick-active-count');
+  const entryEl = document.getElementById('quick-entry-count');
+  if (activeEl) activeEl.textContent = String(active);
+  if (entryEl) entryEl.textContent = String(quickActivityLog.length);
+}
+function escapeHtml(value) {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+function draftStorageKey(dealerCode) { return `gwm_draft_${reportingDateISO()}_${dealerCode || 'no_dealer'}`; }
+function queueDraftSave() { clearTimeout(draftSaveTimer); draftSaveTimer = setTimeout(saveDraftForSelectedDealer, 250); }
+function saveDraftForSelectedDealer() {
+  const dealerCode = document.getElementById('dealer-select').value;
+  if (!dealerCode) return;
+  const payload = { report_date: reportingDateISO(), dealer_code: dealerCode, submitted_by: document.getElementById('submitted-by').value.trim(), direction: selectedDirection, gridData, quickActivityLog, saved_at: new Date().toISOString() };
+  localStorage.setItem(draftStorageKey(dealerCode), JSON.stringify(payload));
+  setDraftStatus('Draft saved ' + new Date().toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit', hour12:true }));
+}
+function loadDraftForSelectedDealer() {
+  const dealerCode = document.getElementById('dealer-select').value;
+  if (!dealerCode) { setDraftStatus('Select dealer to enable draft save'); return Promise.resolve(); }
+  try {
+    const raw = localStorage.getItem(draftStorageKey(dealerCode));
+    if (!raw) { quickActivityLog = []; renderActivityLog(); updateQuickSummary(); setDraftStatus('No draft for today'); return Promise.resolve(); }
+    const draft = JSON.parse(raw);
+    if (draft.submitted_by) document.getElementById('submitted-by').value = draft.submitted_by;
+    if (draft.direction) setDirection(draft.direction);
+    MODEL_BUCKETS.forEach(model => GRID_COLS.forEach(col => setGridValue(model, col.key, safeInt(draft.gridData?.[model]?.[col.key]), false)));
+    quickActivityLog = Array.isArray(draft.quickActivityLog) ? draft.quickActivityLog : [];
+    renderActivityLog(); updateQuickSummary(); setDraftStatus('Draft restored');
+  } catch (err) { console.warn('Draft restore failed:', err); setDraftStatus('Draft restore failed'); }
+  return Promise.resolve();
+}
+function clearDraftForSelectedDealer() {
+  const dealerCode = document.getElementById('dealer-select').value;
+  if (!dealerCode) return;
+  localStorage.removeItem(draftStorageKey(dealerCode));
+  setDraftStatus('Submitted. Draft cleared');
+}
+function setDraftStatus(text) { const el = document.getElementById('draft-status'); if (el) el.textContent = text; }
+function isCompleteSubmission() { return Boolean(document.getElementById('dealer-select').value && document.getElementById('submitted-by').value.trim() && selectedDirection); }
+function scheduleReportingDayWatcher() {
+  setInterval(() => {
+    const current = reportingDateISO();
+    if (current === activeReportDate) return;
+    activeReportDate = current;
+    resetDailyActivityForNewReportDate();
+  }, 60000);
+}
+function resetDailyActivityForNewReportDate() {
+  MODEL_BUCKETS.forEach(model => GRID_COLS.forEach(col => { if (col.key !== 'forecast') setGridValue(model, col.key, 0, false); }));
+  quickActivityLog = [];
+  renderActivityLog(); updateQuickSummary(); setDateFields(); refreshAvailableDealers();
+  setDraftStatus('New report day started. Daily activity reset.');
+}
+
 /* ── Reset form ──────────────────────────────────────────── */
 function resetForm() {
   selectedDirection = '';
@@ -1014,7 +1201,10 @@ function resetForm() {
     GRID_COLS.forEach(c => { gridData[m][c.key] = 0; });
     updateRowTotal(m);
   });
+  quickActivityLog = [];
+  renderActivityLog();
   updateLiveTotals();
+  updateQuickSummary();
   document.getElementById('submitted-by').value = localStorage.getItem('gwm_name') || '';
   document.getElementById('submit-btn').disabled = false;
   document.getElementById('submit-label').textContent = 'Submit Daily Report';

@@ -26,6 +26,7 @@ const COLUMNS = [
   'region',
   'submitted_by',
   'direction',
+  'is_complete_submission',
   'model_bucket',
   'enquiry',
   'test_drives',
@@ -67,8 +68,9 @@ function doGet(e) {
       // Filter by dealer if provided
       if (params.dealer && row['dealer_code'] !== params.dealer) continue;
 
-      // Normalise is_late to boolean string
+      // Normalise boolean fields
       row['is_late'] = row['is_late'] === true || row['is_late'] === 'TRUE' || row['is_late'] === 1;
+      row['is_complete_submission'] = row['is_complete_submission'] === true || row['is_complete_submission'] === 'TRUE' || row['is_complete_submission'] === 1;
 
       rows.push(row);
     }
@@ -107,6 +109,7 @@ function doPost(e) {
     rows.forEach(row => {
       const rowData = COLUMNS.map(col => {
         if (col === 'is_late')    return row[col] ? 'TRUE' : 'FALSE';
+        if (col === 'is_complete_submission') return row[col] ? 'TRUE' : 'FALSE';
         if (col === 'fleet_5_plus') return safeInt(row['fleet']);   // map fleet → fleet_5_plus
         return row[col] !== undefined ? row[col] : '';
       });
