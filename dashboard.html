@@ -258,7 +258,7 @@
     /* ── Model insight tabs: single-row full-width tab bar + data-led model intelligence ── */
     .page-tabs.insight-tabs {
       display: grid;
-      grid-template-columns: repeat(7, minmax(0, 1fr));
+      grid-template-columns: repeat(8, minmax(0, 1fr));
       gap: 0;
       width: 100%;
       overflow: hidden;
@@ -274,8 +274,20 @@
       text-overflow: ellipsis;
       border-bottom-width: 3px;
     }
-    @media (max-width: 900px) {
-      .page-tabs.insight-tabs .page-tab { font-size: 9px; letter-spacing: 0.04em; padding-left: 3px; padding-right: 3px; }
+    @media (max-width: 1100px) {
+      .page-tabs.insight-tabs {
+        display: flex;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+      .page-tabs.insight-tabs .page-tab {
+        flex: 0 0 auto;
+        min-width: 132px;
+        font-size: 9px;
+        letter-spacing: 0.04em;
+        padding-left: 8px;
+        padding-right: 8px;
+      }
     }
     .insight-strip {
       display: grid;
@@ -528,6 +540,31 @@
     </div>
   </div>
 
+  <!-- Decision layer -->
+  <div class="dash-section">
+    <div class="section-header" style="margin-bottom:10px;">
+      <h2>Executive Model & Conversion Read</h2>
+      <span style="font-size:12px;color:var(--gray-400);">Data-led signals from dealer submissions, not stock assumptions.</span>
+    </div>
+    <div class="insight-strip" style="margin-top:0;">
+      <div class="insight-tile">
+        <div class="insight-kicker">Momentum Leader</div>
+        <div class="insight-main" id="exec-momentum">—</div>
+        <div class="insight-sub" id="exec-momentum-sub">Awaiting submissions</div>
+      </div>
+      <div class="insight-tile">
+        <div class="insight-kicker">Largest Funnel Gap</div>
+        <div class="insight-main" id="exec-gap">—</div>
+        <div class="insight-sub" id="exec-gap-sub">Awaiting submissions</div>
+      </div>
+      <div class="insight-tile">
+        <div class="insight-kicker">Best Converter</div>
+        <div class="insight-main" id="exec-converter">—</div>
+        <div class="insight-sub" id="exec-converter-sub">Awaiting submissions</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Tabs -->
   <div class="card" style="padding:0 20px 0;">
     <div class="page-tabs insight-tabs" style="padding-top:4px;">
@@ -535,6 +572,7 @@
       <div class="page-tab" data-tab="models" onclick="switchTab('models')">Model Summary</div>
       <div class="page-tab" data-tab="momentum" onclick="switchTab('momentum')">Model Momentum</div>
       <div class="page-tab" data-tab="funnel" onclick="switchTab('funnel')">Model Funnel</div>
+      <div class="page-tab" data-tab="dealerperformance" onclick="switchTab('dealerperformance')">Dealer Performance</div>
       <div class="page-tab" data-tab="heatmap" onclick="switchTab('heatmap')">Dealer Heatmap</div>
       <div class="page-tab" data-tab="trends" onclick="switchTab('trends')">WoW / MoM Trends</div>
       <div class="page-tab" data-tab="detail" onclick="switchTab('detail')">Row Detail</div>
@@ -753,6 +791,56 @@
       </div>
     </div>
 
+    <!-- Tab: Dealer performance -->
+    <div class="tab-panel" id="tab-dealerperformance" style="padding-bottom:16px;">
+      <div class="section-header" style="margin-bottom:10px;">
+        <h2>Dealer Performance — Model Conversion</h2>
+        <span style="font-size:12px;color:var(--gray-400);">Shows who is generating demand, who converts, and where enquiry is leaking by model bucket.</span>
+      </div>
+      <div class="filter-card" style="border-top-color:#111;">
+        <div class="filter-bar" style="margin:0;">
+          <div class="filter-field">
+            <label class="filter-label">Performance Model</label>
+            <select class="filter-select" id="dealer-perf-model" onchange="renderDealerPerformance()" style="width:220px;">
+              <option value="">All Models</option>
+            </select>
+          </div>
+          <div class="filter-field" style="align-self:flex-end;font-size:11px;color:#999;line-height:1.4;">
+            Uses current dashboard filters. Total Orders = New Sold + Demo Sold + Fleet. Leakage is enquiry or test-drive activity not yet converting into orders.
+          </div>
+        </div>
+      </div>
+      <div class="insight-strip">
+        <div class="insight-tile">
+          <div class="insight-kicker">Best Dealer Conversion</div>
+          <div class="insight-main" id="dealer-best">—</div>
+          <div class="insight-sub" id="dealer-best-sub">Awaiting submitted data</div>
+        </div>
+        <div class="insight-tile">
+          <div class="insight-kicker">Biggest Funnel Leak</div>
+          <div class="insight-main" id="dealer-leak">—</div>
+          <div class="insight-sub" id="dealer-leak-sub">Enquiry or test drive not converting</div>
+        </div>
+        <div class="insight-tile">
+          <div class="insight-kicker">Forecast Variance Watch</div>
+          <div class="insight-main" id="dealer-variance">—</div>
+          <div class="insight-sub" id="dealer-variance-sub">Forecast vs MTD actual orders</div>
+        </div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="data-table" id="tbl-dealer-performance">
+          <thead>
+            <tr>
+              <th>Dealer</th><th>Model</th><th class="num">Enq</th><th class="num">TD</th><th class="num">Orders</th>
+              <th class="num">Enq → TD</th><th class="num">TD → Order</th><th class="num">Enq → Order</th>
+              <th class="num">Enq Leak</th><th class="num">TD Leak</th><th class="num">Forecast</th><th class="num">Variance</th><th>Read</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-dealer-performance"><tr><td colspan="13" class="no-data">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- Tab: Dealer x model heatmap -->
     <div class="tab-panel" id="tab-heatmap" style="padding-bottom:16px;">
       <div class="section-header" style="margin-bottom:10px;">
@@ -873,7 +961,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Set default filter date to today
-  document.getElementById('f-date').value = todayISO();
+  document.getElementById('f-date').value = reportingDateISO();
 
   // Populate filter dropdowns
   populateFilterDropdowns();
@@ -904,11 +992,21 @@ function populateFilterDropdowns() {
     opt.textContent = m;
     mSel.appendChild(opt);
   });
+
+  const perfSel = document.getElementById('dealer-perf-model');
+  if (perfSel && perfSel.options.length <= 1) {
+    MODEL_BUCKETS.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m;
+      opt.textContent = m;
+      perfSel.appendChild(opt);
+    });
+  }
 }
 
 /* ── Load data ───────────────────────────────────────────── */
 async function loadData() {
-  const dateFilter = document.getElementById('f-date').value || todayISO();
+  const dateFilter = document.getElementById('f-date').value || reportingDateISO();
 
   try {
     if (GWM_CONFIG.scriptUrl) {
@@ -964,13 +1062,15 @@ function applyFilters() {
   renderTrends();
   renderModelMomentum();
   renderModelFunnel();
+  renderDealerPerformance();
   renderDealerHeatmap();
+  renderExecutiveInsightSummary();
 }
 
 /* ── KPI render ──────────────────────────────────────────── */
 function renderKPIs() {
   const rows     = filteredRows;
-  const dateVal  = document.getElementById('f-date').value || todayISO();
+  const dateVal  = document.getElementById('f-date').value || reportingDateISO();
   const dateRows = rows.filter(r => r.report_date === dateVal);
 
   // Update date context bar
@@ -1067,7 +1167,7 @@ function set(id, val) {
 
 /* ── Compliance table ────────────────────────────────────── */
 function renderComplianceTable() {
-  const dateVal    = document.getElementById('f-date').value || todayISO();
+  const dateVal    = document.getElementById('f-date').value || reportingDateISO();
   const dateRows   = filteredRows.filter(r => r.report_date === dateVal);
   const byDealer   = {};
 
@@ -1243,7 +1343,7 @@ function renderDetailTable() {
 
 /* ── Direction doughnut chart ────────────────────────────── */
 function renderDirectionChart() {
-  const dateVal  = document.getElementById('f-date').value || todayISO();
+  const dateVal  = document.getElementById('f-date').value || reportingDateISO();
   const dateRows = filteredRows.filter(r => r.report_date === dateVal);
   const byDealer = {};
   dateRows.forEach(r => { byDealer[r.dealer_code] = r.direction; });
@@ -1289,7 +1389,7 @@ function setTrendRange(days) {
 
 /* ── WoW / MoM calculations ─────────────────────────── */
 function renderTrends() {
-  const dateVal = document.getElementById('f-date').value || todayISO();
+  const dateVal = document.getElementById('f-date').value || reportingDateISO();
 
   // ── Helpers ──
   function isoOffset(isoDate, days) {
@@ -1540,7 +1640,7 @@ function setInsight(id, main, sub) {
 
 /* ── New tab: Model Momentum ────────────────────────────── */
 function renderModelMomentum() {
-  const dateVal = document.getElementById('f-date').value || todayISO();
+  const dateVal = document.getElementById('f-date').value || reportingDateISO();
   const yesterday = isoShift(dateVal, -1);
   const prevWeek = isoShift(dateVal, -7);
   const [yr, mo, day] = dateVal.split('-');
@@ -1660,6 +1760,68 @@ function renderModelFunnel() {
   setInsight('fun-forecast', fWatch ? fWatch.model : '—', fWatch ? `${fWatch.a.forecast} forecast vs ${fWatch.a.total_sold} total sold in current filter` : 'No forecast data submitted');
 }
 
+
+/* ── New tab: Dealer Performance ────────────────────────── */
+function renderDealerPerformance() {
+  const modelOverrideEl = document.getElementById('dealer-perf-model');
+  const modelOverride = modelOverrideEl ? modelOverrideEl.value : '';
+  const selectedModel = modelOverride || document.getElementById('f-model').value || '';
+  const dateVal = document.getElementById('f-date').value || reportingDateISO();
+  const [yr, mo, day] = dateVal.split('-');
+  const curYM = `${yr}-${mo}`;
+  const baseRows = rowsForMonthToDateWithCurrentFilters(curYM, day).filter(r => !selectedModel || r.model_bucket === selectedModel);
+  const agg = {};
+  baseRows.forEach(r => {
+    const key = `${r.dealer_code}|${r.model_bucket}`;
+    if (!agg[key]) {
+      const dealer = DEALERS.find(d => d.code === r.dealer_code);
+      agg[key] = { dealer_code: r.dealer_code, dealer_name: dealer ? dealer.name : (r.dealer_name || r.dealer_code), model: r.model_bucket, enquiry:0, test_drives:0, orders:0, forecast:0 };
+    }
+    agg[key].enquiry += nVal(r.enquiry);
+    agg[key].test_drives += nVal(r.test_drives);
+    agg[key].orders += totalSoldRow(r);
+    agg[key].forecast += nVal(r.forecast);
+  });
+  let rows = Object.values(agg).map(x => {
+    const enqTd = x.enquiry > 0 ? Math.round((x.test_drives / x.enquiry) * 100) : 0;
+    const tdOrder = x.test_drives > 0 ? Math.round((x.orders / x.test_drives) * 100) : 0;
+    const enqOrder = x.enquiry > 0 ? Math.round((x.orders / x.enquiry) * 100) : 0;
+    const enqLeak = Math.max(0, x.enquiry - x.test_drives);
+    const tdLeak = Math.max(0, x.test_drives - x.orders);
+    const variance = x.forecast - x.orders;
+    let read = { label: 'Low Activity', cls: 'quiet' };
+    if (x.enquiry >= 5 && x.test_drives === 0) read = { label: 'Follow-up Gap', cls: 'gap' };
+    else if (x.test_drives >= 3 && x.orders === 0) read = { label: 'Closing Gap', cls: 'gap' };
+    else if (x.enquiry >= 5 && enqOrder >= 25) read = { label: 'Strong Converter', cls: 'strong' };
+    else if (x.orders > 0 && x.enquiry === 0) read = { label: 'Order Activity', cls: 'closing' };
+    else if (x.orders > 0) read = { label: 'Converting', cls: 'closing' };
+    else if (x.forecast > 0 && x.orders === 0) read = { label: 'Forecast Watch', cls: 'medium' };
+    return { ...x, enqTd, tdOrder, enqOrder, enqLeak, tdLeak, variance, read };
+  }).filter(x => x.enquiry > 0 || x.test_drives > 0 || x.orders > 0 || x.forecast > 0);
+  rows.sort((a,b) => (b.orders - a.orders) || (b.enqOrder - a.enqOrder) || (b.enquiry - a.enquiry));
+  const tbody = document.getElementById('tbody-dealer-performance');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="13" class="no-data">No dealer/model activity for this filter. Use All Models or wait for dealer submissions.</td></tr>';
+    setInsight('dealer-best', '—', 'No submitted conversion data');
+    setInsight('dealer-leak', '—', 'No submitted activity leak');
+    setInsight('dealer-variance', '—', 'No forecast variance read');
+    return;
+  }
+  rows.forEach(x => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td style="font-weight:700;"><code style="font-size:11px;">${x.dealer_code}</code> ${x.dealer_name}</td><td style="font-weight:600;">${x.model}</td><td class="num">${x.enquiry}</td><td class="num">${x.test_drives}</td><td class="num" style="font-weight:800;">${x.orders}</td><td class="num">${rateText(x.test_drives, x.enquiry)}</td><td class="num">${rateText(x.orders, x.test_drives)}</td><td class="num">${rateText(x.orders, x.enquiry)}</td><td class="num">${x.enqLeak || '—'}</td><td class="num">${x.tdLeak || '—'}</td><td class="num">${x.forecast || '—'}</td><td class="num" style="color:${x.variance > 0 ? '#C84B00' : x.variance < 0 ? '#2E7D32' : '#888'};font-weight:800;">${x.forecast ? (x.variance > 0 ? '+' + x.variance : String(x.variance)) : '—'}</td><td><span class="signal-tag ${x.read.cls}">${x.read.label}</span></td>`;
+    tbody.appendChild(tr);
+  });
+  const best = [...rows].filter(x => x.enquiry >= 3 || x.test_drives >= 2).sort((a,b) => b.enqOrder - a.enqOrder || b.orders - a.orders)[0];
+  const leak = [...rows].sort((a,b) => (b.enqLeak + b.tdLeak) - (a.enqLeak + a.tdLeak))[0];
+  const variance = [...rows].filter(x => x.forecast > 0).sort((a,b) => b.variance - a.variance)[0];
+  setInsight('dealer-best', best ? best.dealer_code : '—', best ? `${best.model}: ${best.enqOrder}% enquiry → order from ${best.enquiry} enquiries` : 'No conversion read yet');
+  setInsight('dealer-leak', leak && (leak.enqLeak + leak.tdLeak) > 0 ? leak.dealer_code : '—', leak && (leak.enqLeak + leak.tdLeak) > 0 ? `${leak.model}: ${leak.enqLeak} enquiry leak, ${leak.tdLeak} TD leak` : 'No leakage signal in current filter');
+  setInsight('dealer-variance', variance ? variance.dealer_code : '—', variance ? `${variance.model}: ${variance.forecast} forecast vs ${variance.orders} MTD orders` : 'No forecast data in current filter');
+}
+
 /* ── New tab: Dealer x Model Heatmap ────────────────────── */
 function renderDealerHeatmap() {
   const metricSel = document.getElementById('heatmap-metric');
@@ -1717,12 +1879,40 @@ function renderDealerHeatmap() {
   setInsight('heat-quiet', quiet ? quiet.model : '—', quiet ? `${quiet.total} total ${labelMap[metric].toLowerCase()} in current filter` : 'No quiet-model read');
 }
 
+function renderExecutiveInsightSummary() {
+  const dateVal = document.getElementById('f-date').value || reportingDateISO();
+  const prevWeek = isoShift(dateVal, -7);
+  const cur = modelAgg(rowsForDateWithCurrentFilters(dateVal));
+  const prev = modelAgg(rowsForDateWithCurrentFilters(prevWeek));
+  const todayAgg = modelAgg(filteredRows);
+
+  const modelRows = MODEL_BUCKETS.map(model => {
+    const c = cur[model];
+    const p = prev[model];
+    const t = todayAgg[model];
+    const wowEnq = pctText(c.enquiry, p.enquiry);
+    const wowSold = pctText(c.total_sold, p.total_sold);
+    const enqOrder = t.enquiry > 0 ? Math.round((t.total_sold / t.enquiry) * 100) : 0;
+    const gapScore = Math.max(0, t.enquiry - t.test_drives) + Math.max(0, t.test_drives - t.total_sold);
+    const momentumScore = (wowEnq.pct === 999 ? 100 : wowEnq.pct) + (wowSold.pct === 999 ? 100 : wowSold.pct);
+    return { model, c, t, wowEnq, wowSold, enqOrder, gapScore, momentumScore };
+  }).filter(x => x.t.enquiry > 0 || x.t.test_drives > 0 || x.t.total_sold > 0 || x.c.enquiry > 0 || x.c.total_sold > 0);
+
+  const momentum = [...modelRows].sort((a,b) => b.momentumScore - a.momentumScore || b.c.enquiry - a.c.enquiry)[0];
+  const gap = [...modelRows].filter(x => x.gapScore > 0).sort((a,b) => b.gapScore - a.gapScore || b.t.enquiry - a.t.enquiry)[0];
+  const converter = [...modelRows].filter(x => x.t.enquiry >= 1 && x.t.total_sold > 0).sort((a,b) => b.enqOrder - a.enqOrder || b.t.total_sold - a.t.total_sold)[0];
+
+  setInsight('exec-momentum', momentum ? momentum.model : '—', momentum ? `WoW enquiry ${momentum.wowEnq.text}; WoW sold ${momentum.wowSold.text}` : 'No model momentum signal yet');
+  setInsight('exec-gap', gap ? gap.model : '—', gap ? `${gap.t.enquiry} enquiries, ${gap.t.test_drives} test drives, ${gap.t.total_sold} total orders` : 'No funnel leakage detected');
+  setInsight('exec-converter', converter ? converter.model : '—', converter ? `${converter.enqOrder}% enquiry → order from ${converter.t.enquiry} enquiries` : 'No conversion signal yet');
+}
+
 function renderTrendChart() {
   // Build date array going back trendDays days
   const dates = [];
-  const today = new Date();
+  const baseDate = new Date((document.getElementById('f-date').value || reportingDateISO()) + 'T00:00:00');
   for (let i = trendDays - 1; i >= 0; i--) {
-    const d = new Date(today);
+    const d = new Date(baseDate);
     d.setDate(d.getDate() - i);
     dates.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
   }
@@ -1811,7 +2001,7 @@ function saveConfig() {
 /* ── CSV export ──────────────────────────────────────────── */
 function exportData() {
   if (!filteredRows.length) { showToast('No data to export', 'error'); return; }
-  exportCSV(filteredRows, `gwm_report_${document.getElementById('f-date').value || todayISO()}.csv`);
+  exportCSV(filteredRows, `gwm_report_${document.getElementById('f-date').value || reportingDateISO()}.csv`);
   showToast(`Exported ${filteredRows.length} rows`, 'success');
 }
 </script>
