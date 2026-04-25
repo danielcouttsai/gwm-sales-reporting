@@ -27,6 +27,9 @@ const COLUMNS = [
   'submitted_by',
   'direction',
   'is_complete_submission',
+  'input_method',
+  'submission_duration_seconds',
+  'last_updated_at',
   'model_bucket',
   'enquiry',
   'test_drives',
@@ -61,6 +64,9 @@ function doGet(e) {
       headers.forEach((h, j) => {
         row[h] = data[i][j];
       });
+
+      // Normalise date before filtering. Google Sheets may return a Date object.
+      row['report_date'] = normaliseSheetDate(row['report_date']);
 
       // Filter by date if provided
       if (params.date && row['report_date'] !== params.date) continue;
@@ -103,6 +109,7 @@ function doPost(e) {
     // If the same dealer submits again for the same report_date, replace the prior model rows.
     const dealerCode = rows[0].dealer_code;
     const reportDate = rows[0].report_date;
+    const existingForecasts = getExistingMonthlyForecasts(sheet, dealerCode, reportDate);
     deleteExistingSubmissionRows(sheet, dealerCode, reportDate);
 
     const appended = [];
@@ -110,7 +117,14 @@ function doPost(e) {
       const rowData = COLUMNS.map(col => {
         if (col === 'is_late')    return row[col] ? 'TRUE' : 'FALSE';
         if (col === 'is_complete_submission') return row[col] ? 'TRUE' : 'FALSE';
-        if (col === 'fleet_5_plus') return safeInt(row['fleet']);   // map fleet → fleet_5_plus
+        if (col === 'fleet_5_plus') return row['fleet'] === '' || row['fleet'] === null || row['fleet'] === undefined ? '' : safeInt(row['fleet']);   // map fleet → fleet_5_plus
+        if (col === 'forecast') {
+          if (row[col] === '' || row[col] === null || row[col] === undefined) {
+            const model = String(row.model_bucket || '').trim();
+            return existingForecasts[model] !== undefined ? existingForecasts[model] : '';
+          }
+          return safeInt(row[col]);
+        }
         return row[col] !== undefined ? row[col] : '';
       });
       sheet.appendRow(rowData);
@@ -144,18 +158,62 @@ function getSheet() {
 function ensureHeaders(sheet) {
   if (sheet.getLastRow() === 0) {
     sheet.appendRow(COLUMNS);
-    // Style the header row
-    const headerRange = sheet.getRange(1, 1, 1, COLUMNS.length);
-    headerRange.setFontWeight('bold');
-    headerRange.setBackground('#111111');
-    headerRange.setFontColor('#FFFFFF');
-    sheet.setFrozenRows(1);
-    // Set column widths
-    sheet.setColumnWidth(1, 180);  // submitted_at
-    sheet.setColumnWidth(2, 110);  // report_date
-    sheet.setColumnWidth(5, 200);  // dealer_name
-    sheet.setColumnWidth(9, 160);  // model_bucket
+  } else {
+    const existing = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), COLUMNS.length)).getValues()[0].map(h => String(h || '').trim());
+    const needsUpgrade = COLUMNS.some((col, i) => existing[i] !== col);
+    if (needsUpgrade) {
+      sheet.getRange(1, 1, 1, COLUMNS.length).setValues([COLUMNS]);
+    }
   }
+
+  // Style the header row and keep widths consistent.
+  const headerRange = sheet.getRange(1, 1, 1, COLUMNS.length);
+  headerRange.setFontWeight('bold');
+  headerRange.setBackground('#111111');
+  headerRange.setFontColor('#FFFFFF');
+  sheet.setFrozenRows(1);
+  sheet.setColumnWidth(1, 180);  // submitted_at
+  sheet.setColumnWidth(2, 110);  // report_date
+  sheet.setColumnWidth(5, 200);  // dealer_name
+  sheet.setColumnWidth(9, 160);  // is_complete_submission
+  sheet.setColumnWidth(10, 130); // input_method
+  sheet.setColumnWidth(12, 180); // last_updated_at
+  sheet.setColumnWidth(13, 160); // model_bucket
+}
+
+
+function getExistingMonthlyForecasts(sheet, dealerCode, reportDate) {
+  const forecasts = {};
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return forecasts;
+
+  const data = sheet.getRange(2, 1, lastRow - 1, COLUMNS.length).getValues();
+  const dealerCol = COLUMNS.indexOf('dealer_code');
+  const dateCol = COLUMNS.indexOf('report_date');
+  const modelCol = COLUMNS.indexOf('model_bucket');
+  const forecastCol = COLUMNS.indexOf('forecast');
+  const submittedCol = COLUMNS.indexOf('submitted_at');
+  const targetMonth = String(reportDate || '').slice(0, 7);
+  const latest = {};
+
+  for (let i = 0; i < data.length; i++) {
+    const rowDealer = String(data[i][dealerCol] || '').trim();
+    const rowDate = normaliseSheetDate(data[i][dateCol]);
+    if (rowDealer !== String(dealerCode).trim()) continue;
+    if (String(rowDate).slice(0, 7) !== targetMonth) continue;
+
+    const model = String(data[i][modelCol] || '').trim();
+    const forecast = data[i][forecastCol];
+    if (!model || forecast === '' || forecast === null || forecast === undefined) continue;
+
+    const ts = new Date(data[i][submittedCol] || 0).getTime() || 0;
+    if (!latest[model] || ts >= latest[model].ts) {
+      latest[model] = { ts: ts, val: safeInt(forecast) };
+    }
+  }
+
+  Object.keys(latest).forEach(model => forecasts[model] = latest[model].val);
+  return forecasts;
 }
 
 function deleteExistingSubmissionRows(sheet, dealerCode, reportDate) {

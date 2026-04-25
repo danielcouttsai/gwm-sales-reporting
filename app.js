@@ -188,6 +188,10 @@ function generateDemoData(dateISO) {
         region: GWM_CONFIG.region,
         submitted_by: 'Demo User',
         direction: ['Up','Flat','Down'][Math.floor(Math.random()*3)],
+        is_complete_submission: true,
+        input_method: 'demo',
+        submission_duration_seconds: 45,
+        last_updated_at: ts.toISOString(),
         model_bucket: model,
         enquiry:     active ? Math.floor(Math.random()*8) : 0,
         test_drives: active ? Math.floor(Math.random()*4) : 0,
@@ -205,7 +209,8 @@ function generateDemoData(dateISO) {
 function exportCSV(rows, filename) {
   const headers = [
     'submitted_at','report_date','is_late','dealer_code','dealer_name',
-    'region','submitted_by','direction','is_complete_submission','model_bucket',
+    'region','submitted_by','direction','is_complete_submission','input_method',
+    'submission_duration_seconds','last_updated_at','model_bucket',
     'enquiry','test_drives','new_sold','fleet_5_plus','demo_sold','forecast'
   ];
   const escape = v => {
@@ -219,6 +224,7 @@ function exportCSV(rows, filename) {
       r.submitted_at, r.report_date, r.is_late ? 'TRUE' : 'FALSE',
       r.dealer_code, r.dealer_name, r.region, r.submitted_by, r.direction,
       r.is_complete_submission ? 'TRUE' : 'FALSE',
+      r.input_method, r.submission_duration_seconds, r.last_updated_at,
       r.model_bucket, r.enquiry, r.test_drives, r.new_sold,
       r.fleet, r.demo_sold, r.forecast,
     ].map(escape).join(','));

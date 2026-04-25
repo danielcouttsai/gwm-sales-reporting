@@ -608,6 +608,9 @@ let submittedDealerCodes = new Set();
 let quickActivityLog = [];
 let activeReportDate = reportingDateISO();
 let draftSaveTimer = null;
+let formOpenedAt = Date.now();
+let manualGridEditCount = 0;
+let lastUpdatedAt = null;
 
 /* ── Init ────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', init);
@@ -714,7 +717,7 @@ function buildModelGrid() {
 
     // Init data store
     gridData[model] = {};
-    GRID_COLS.forEach(c => { gridData[model][c.key] = 0; });
+    GRID_COLS.forEach(c => { gridData[model][c.key] = null; });
 
     // Build row
     const tr = document.createElement('tr');
@@ -733,7 +736,7 @@ function buildModelGrid() {
       input.type        = 'number';
       input.min         = '0';
       input.step        = '1';
-      input.value       = '0';
+      input.value       = '';
       input.className   = 'grid-input';
       input.setAttribute('data-model', model);
       input.setAttribute('data-col',   col.key);
@@ -762,20 +765,27 @@ function buildModelGrid() {
 }
 
 /* ── Grid input handler ──────────────────────────────────── */
+function readGridInputValue(input) {
+  const raw = String(input.value ?? '').trim();
+  return raw === '' ? null : safeInt(raw);
+}
+
 function onGridInput(input, model, col) {
-  const val = safeInt(input.value);
-  input.value = val === 0 ? '0' : val;
-  input.classList.toggle('nonzero', val > 0);
+  const val = readGridInputValue(input);
+  input.value = val === null ? '' : String(val);
+  input.classList.toggle('nonzero', safeInt(val) > 0);
   gridData[model][col] = val;
+  manualGridEditCount += 1;
+  lastUpdatedAt = nowTimestamp();
   updateRowTotal(model);
   updateLiveTotals();
   updateQuickSummary();
   queueDraftSave();
-  if (col === 'forecast') saveForecastForSelectedDealer();
+  if (col === 'forecast' && val !== null) saveForecastForSelectedDealer();
 }
 
 function updateRowTotal(model) {
-  const sum = GRID_COLS.reduce((acc, c) => acc + (gridData[model][c.key] || 0), 0);
+  const sum = GRID_COLS.reduce((acc, c) => acc + safeInt(gridData[model][c.key]), 0);
   const el = document.getElementById(`rowtot-${model.replace(/\s+/g,'_')}`);
   if (el) el.textContent = sum;
 }
@@ -798,7 +808,7 @@ function updateLiveTotals() {
   const totals = {};
   GRID_COLS.forEach(c => { totals[c.key] = 0; });
   MODEL_BUCKETS.forEach(m => {
-    GRID_COLS.forEach(c => { totals[c.key] += gridData[m][c.key] || 0; });
+    GRID_COLS.forEach(c => { totals[c.key] += safeInt(gridData[m][c.key]); });
   });
   document.getElementById('tot-enquiry').textContent = totals.enquiry;
   document.getElementById('tot-td').textContent      = totals.test_drives;
@@ -888,6 +898,9 @@ function buildRows() {
   const late       = isLate();
   const name       = document.getElementById('submitted-by').value.trim();
   const direction  = selectedDirection;
+  const inputMethod = getInputMethod();
+  const durationSeconds = Math.max(0, Math.round((Date.now() - formOpenedAt) / 1000));
+  const updatedAt = lastUpdatedAt || ts;
 
   return MODEL_BUCKETS.map(model => ({
     submitted_at: ts,
@@ -899,13 +912,16 @@ function buildRows() {
     submitted_by: name,
     direction:    direction,
     is_complete_submission: isCompleteSubmission(),
+    input_method: inputMethod,
+    submission_duration_seconds: durationSeconds,
+    last_updated_at: updatedAt,
     model_bucket: model,
-    enquiry:      gridData[model].enquiry,
-    test_drives:  gridData[model].test_drives,
-    new_sold:     gridData[model].new_sold,
-    fleet:        gridData[model].fleet,
-    demo_sold:    gridData[model].demo_sold,
-    forecast:     gridData[model].forecast,
+    enquiry:      gridData[model].enquiry === null ? '' : gridData[model].enquiry,
+    test_drives:  gridData[model].test_drives === null ? '' : gridData[model].test_drives,
+    new_sold:     gridData[model].new_sold === null ? '' : gridData[model].new_sold,
+    fleet:        gridData[model].fleet === null ? '' : gridData[model].fleet,
+    demo_sold:    gridData[model].demo_sold === null ? '' : gridData[model].demo_sold,
+    forecast:     gridData[model].forecast === null ? '' : gridData[model].forecast,
   }));
 }
 
@@ -960,6 +976,7 @@ function handleSuccess(rows) {
   localStorage.setItem('gwm_name',   document.getElementById('submitted-by').value.trim());
   saveForecastForSelectedDealer();
   clearDraftForSelectedDealer();
+  formOpenedAt = Date.now();
   submittedDealerCodes.add(document.getElementById('dealer-select').value);
 
   // Save to local history (for offline dashboard demo)
@@ -971,8 +988,8 @@ function handleSuccess(rows) {
   populateDealerDropdown();
 
   document.getElementById('sales-form').classList.add('hidden');
-  const totEnq  = rows.reduce((a,r) => a + r.enquiry, 0);
-  const totSold = rows.reduce((a,r) => a + r.new_sold, 0);
+  const totEnq  = rows.reduce((a,r) => a + safeInt(r.enquiry), 0);
+  const totSold = rows.reduce((a,r) => a + safeInt(r.new_sold), 0);
   document.getElementById('success-msg').textContent =
     `Submitted ${rows.length} model rows — ${totEnq} enquiries, ${totSold} new sold. ` +
     (rows[0].is_late ? '(Flagged as late submission)' : '');
@@ -991,7 +1008,11 @@ function getForecastInputs() {
 
 function collectCurrentForecast() {
   const out = {};
-  MODEL_BUCKETS.forEach(m => { out[m] = safeInt(gridData[m]?.forecast); });
+  getForecastInputs().forEach(inp => {
+    const model = inp.getAttribute('data-model');
+    const val = readGridInputValue(inp);
+    if (val !== null) out[model] = val;
+  });
   return out;
 }
 
@@ -999,7 +1020,10 @@ function applyForecastMap(map) {
   if (!map) return;
   getForecastInputs().forEach(inp => {
     const model = inp.getAttribute('data-model');
-    const val = safeInt(map[model]);
+    if (!Object.prototype.hasOwnProperty.call(map, model)) return;
+    const raw = map[model];
+    if (raw === '' || raw === null || raw === undefined) return;
+    const val = safeInt(raw);
     inp.value = String(val);
     inp.classList.toggle('nonzero', val > 0);
     if (gridData[model]) gridData[model].forecast = val;
@@ -1035,7 +1059,7 @@ async function loadForecastForSelectedDealer() {
         .forEach(r => {
           const model = r.model_bucket;
           const ts = new Date(r.submitted_at || 0).getTime() || 0;
-          if (!latest[model] || ts >= latest[model].ts) latest[model] = { ts, val: safeInt(r.forecast) };
+          if (r.forecast !== '' && r.forecast !== null && r.forecast !== undefined && (!latest[model] || ts >= latest[model].ts)) latest[model] = { ts, val: safeInt(r.forecast) };
         });
       const serverForecast = {};
       Object.keys(latest).forEach(model => { serverForecast[model] = latest[model].val; });
@@ -1084,10 +1108,10 @@ function addQuickActivity() {
   const qty = safeInt(document.getElementById('quick-qty').value);
   if (!model) { showToast('Select a model bucket first.', 'error'); document.getElementById('quick-model').focus(); return; }
   if (qty <= 0) { showToast('Enter a quantity greater than zero.', 'error'); document.getElementById('quick-qty').focus(); return; }
-  const current = safeInt(gridData[model][metric]);
-  const next = metric === 'forecast' ? qty : current + qty;
+  const current = gridData[model][metric] === null ? null : safeInt(gridData[model][metric]);
+  const next = metric === 'forecast' ? qty : safeInt(current) + qty;
   setGridValue(model, metric, next, true);
-  quickActivityLog.unshift({ model, metric, qty, mode: metric === 'forecast' ? 'set' : 'add', ts: new Date().toISOString() });
+  quickActivityLog.unshift({ model, metric, qty, before: current, after: next, mode: metric === 'forecast' ? 'set' : 'add', ts: new Date().toISOString() });
   quickActivityLog = quickActivityLog.slice(0, 20);
   renderActivityLog();
   updateQuickSummary();
@@ -1097,10 +1121,11 @@ function addQuickActivity() {
 }
 function setGridValue(model, col, value, focusRow) {
   if (!gridData[model]) return;
-  const val = Math.max(0, safeInt(value));
+  const val = (value === '' || value === null || value === undefined) ? null : Math.max(0, safeInt(value));
   gridData[model][col] = val;
   const inp = Array.from(document.querySelectorAll('.grid-input')).find(el => el.getAttribute('data-model') === model && el.getAttribute('data-col') === col);
-  if (inp) { inp.value = String(val); inp.classList.toggle('nonzero', val > 0); }
+  if (inp) { inp.value = val === null ? '' : String(val); inp.classList.toggle('nonzero', safeInt(val) > 0); }
+  lastUpdatedAt = nowTimestamp();
   updateRowTotal(model);
   updateLiveTotals();
   updateQuickSummary();
@@ -1128,11 +1153,18 @@ function renderActivityLog() {
   }).join('');
 }
 function removeActivityLogItem(ts) {
-  quickActivityLog = quickActivityLog.filter(item => item.ts !== ts);
-  renderActivityLog(); updateQuickSummary(); queueDraftSave();
+  const item = quickActivityLog.find(x => x.ts === ts);
+  if (!item) return;
+  setGridValue(item.model, item.metric, item.before, true);
+  quickActivityLog = quickActivityLog.filter(x => x.ts !== ts);
+  renderActivityLog();
+  updateQuickSummary();
+  queueDraftSave();
+  if (item.metric === 'forecast') saveForecastForSelectedDealer();
+  showToast('Quick entry removed and grid value restored.', 'success', 1800);
 }
 function updateQuickSummary() {
-  const active = MODEL_BUCKETS.filter(model => GRID_COLS.some(col => safeInt(gridData[model]?.[col.key]) > 0)).length;
+  const active = MODEL_BUCKETS.filter(model => GRID_COLS.some(col => col.key !== 'forecast' && safeInt(gridData[model]?.[col.key]) > 0)).length;
   const activeEl = document.getElementById('quick-active-count');
   const entryEl = document.getElementById('quick-entry-count');
   if (activeEl) activeEl.textContent = String(active);
@@ -1146,7 +1178,7 @@ function queueDraftSave() { clearTimeout(draftSaveTimer); draftSaveTimer = setTi
 function saveDraftForSelectedDealer() {
   const dealerCode = document.getElementById('dealer-select').value;
   if (!dealerCode) return;
-  const payload = { report_date: reportingDateISO(), dealer_code: dealerCode, submitted_by: document.getElementById('submitted-by').value.trim(), direction: selectedDirection, gridData, quickActivityLog, saved_at: new Date().toISOString() };
+  const payload = { report_date: reportingDateISO(), dealer_code: dealerCode, submitted_by: document.getElementById('submitted-by').value.trim(), direction: selectedDirection, gridData, quickActivityLog, manualGridEditCount, formOpenedAt, lastUpdatedAt, saved_at: new Date().toISOString() };
   localStorage.setItem(draftStorageKey(dealerCode), JSON.stringify(payload));
   setDraftStatus('Draft saved ' + new Date().toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit', hour12:true }));
 }
@@ -1159,7 +1191,10 @@ function loadDraftForSelectedDealer() {
     const draft = JSON.parse(raw);
     if (draft.submitted_by) document.getElementById('submitted-by').value = draft.submitted_by;
     if (draft.direction) setDirection(draft.direction);
-    MODEL_BUCKETS.forEach(model => GRID_COLS.forEach(col => setGridValue(model, col.key, safeInt(draft.gridData?.[model]?.[col.key]), false)));
+    MODEL_BUCKETS.forEach(model => GRID_COLS.forEach(col => setGridValue(model, col.key, draft.gridData?.[model]?.[col.key] ?? null, false)));
+    manualGridEditCount = safeInt(draft.manualGridEditCount);
+    formOpenedAt = draft.formOpenedAt || Date.now();
+    lastUpdatedAt = draft.lastUpdatedAt || null;
     quickActivityLog = Array.isArray(draft.quickActivityLog) ? draft.quickActivityLog : [];
     renderActivityLog(); updateQuickSummary(); setDraftStatus('Draft restored');
   } catch (err) { console.warn('Draft restore failed:', err); setDraftStatus('Draft restore failed'); }
@@ -1172,7 +1207,20 @@ function clearDraftForSelectedDealer() {
   setDraftStatus('Submitted. Draft cleared');
 }
 function setDraftStatus(text) { const el = document.getElementById('draft-status'); if (el) el.textContent = text; }
-function isCompleteSubmission() { return Boolean(document.getElementById('dealer-select').value && document.getElementById('submitted-by').value.trim() && selectedDirection); }
+function hasAnyDailyActivity() {
+  return MODEL_BUCKETS.some(model => GRID_COLS.some(col => col.key !== 'forecast' && gridData[model]?.[col.key] !== null));
+}
+function isCompleteSubmission() {
+  return Boolean(document.getElementById('dealer-select').value && document.getElementById('submitted-by').value.trim() && selectedDirection && hasAnyDailyActivity());
+}
+function getInputMethod() {
+  const hasQuick = quickActivityLog.length > 0;
+  const hasManual = manualGridEditCount > 0;
+  if (hasQuick && hasManual) return 'mixed';
+  if (hasQuick) return 'activity';
+  if (hasManual) return 'grid';
+  return 'no_activity';
+}
 function scheduleReportingDayWatcher() {
   setInterval(() => {
     const current = reportingDateISO();
@@ -1182,7 +1230,7 @@ function scheduleReportingDayWatcher() {
   }, 60000);
 }
 function resetDailyActivityForNewReportDate() {
-  MODEL_BUCKETS.forEach(model => GRID_COLS.forEach(col => { if (col.key !== 'forecast') setGridValue(model, col.key, 0, false); }));
+  MODEL_BUCKETS.forEach(model => GRID_COLS.forEach(col => { if (col.key !== 'forecast') setGridValue(model, col.key, null, false); }));
   quickActivityLog = [];
   renderActivityLog(); updateQuickSummary(); setDateFields(); refreshAvailableDealers();
   setDraftStatus('New report day started. Daily activity reset.');
@@ -1194,11 +1242,11 @@ function resetForm() {
   document.querySelectorAll('.direction-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('direction-val').value = '';
   document.querySelectorAll('.grid-input').forEach(inp => {
-    inp.value = '0';
+    inp.value = '';
     inp.classList.remove('nonzero');
   });
   MODEL_BUCKETS.forEach(m => {
-    GRID_COLS.forEach(c => { gridData[m][c.key] = 0; });
+    GRID_COLS.forEach(c => { gridData[m][c.key] = null; });
     updateRowTotal(m);
   });
   quickActivityLog = [];

@@ -6,11 +6,9 @@
   <title>GWM Daily Sales Reporting – User Guide</title>
   <link rel="stylesheet" href="styles.css">
   <style>
-    body { background: #fff; }
-
-  <style>
     body { background: var(--gray-100); }
     .guide-wrap { max-width: 760px; margin: 0 auto; padding: 28px 16px 60px; }
+    @media print {
       .site-header, .no-print { display: none !important; }
       .guide-body { padding: 0; }
       .section-block { page-break-inside: avoid; }
@@ -486,7 +484,7 @@
     </table>
 
     <div class="info-box tip">
-      <strong>Tip:</strong> You only need to fill in models where you have activity. All fields default to 0 — just update the ones that changed today.
+      <strong>Tip:</strong> You only need to fill in models where you have activity. Daily activity fields start blank so a true zero can be separated from a missed field. Enter 0 where there was no activity; forecast carries through the month unless changed.
     </div>
 
     <h3>Bookmarking to Your Home Screen</h3>
@@ -643,7 +641,8 @@
         <tr><td>L</td><td><code>new_sold</code></td><td>1</td><td>Integer ≥ 0</td></tr>
         <tr><td>M</td><td><code>fleet_5_plus</code></td><td>0</td><td>Fleet units (deals of 5+)</td></tr>
         <tr><td>N</td><td><code>demo_sold</code></td><td>0</td><td>Integer ≥ 0</td></tr>
-        <tr><td>O</td><td><code>forecast</code></td><td>3</td><td>Monthly delivery forecast for this model</td></tr>
+        <tr><td>O</td><td><code>forecast</code></td><td>3</td><td>Monthly delivery forecast for this model. Blank keeps the prior monthly forecast; entered 0 is a true zero.</td></tr>
+        <tr><td>P</td><td><code>is_complete_submission</code></td><td>TRUE</td><td>TRUE only when all daily activity cells were explicitly completed.</td></tr>
       </tbody>
     </table>
 
@@ -729,7 +728,8 @@
         <tr><td><code>new_sold</code></td><td>Whole Number</td><td></td></tr>
         <tr><td><code>fleet_5_plus</code></td><td>Whole Number</td><td></td></tr>
         <tr><td><code>demo_sold</code></td><td>Whole Number</td><td></td></tr>
-        <tr><td><code>forecast</code></td><td>Whole Number</td><td></td></tr>
+        <tr><td><code>forecast</code></td><td>Whole Number</td><td>Protected monthly value. Blank means no change; entered 0 is treated as a true zero.</td></tr>
+        <tr><td><code>is_complete_submission</code></td><td>True/False</td><td>TRUE only when every daily activity field was explicitly completed. This helps separate complete reports from partial submissions.</td></tr>
       </tbody>
     </table>
 
