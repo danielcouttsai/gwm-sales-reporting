@@ -171,7 +171,198 @@
     }
     .success-screen h2 { font-size: 18px; font-weight: 800; letter-spacing: 0.04em; margin-bottom: 8px; }
     .success-screen p  { font-size: 13px; color: #666; margin-bottom: 28px; }
-  </style>
+  
+
+    /* ── Mobile-only usability fixes: header + input grid ── */
+    @media (max-width: 599px) {
+      body { overflow-x: hidden; }
+
+      .header-top-strip {
+        justify-content: space-between;
+        padding: 6px 14px;
+      }
+
+      .header-brandbar {
+        display: block;
+        padding: 12px 14px 10px;
+      }
+
+      .brandbar-left {
+        width: 100%;
+        gap: 10px;
+        justify-content: space-between;
+      }
+
+      .gwm-wordmark-img {
+        height: 28px;
+        max-width: 70vw;
+        object-fit: contain;
+      }
+
+      .brand-url { display: none; }
+
+      .header-brand-right {
+        margin-top: 8px;
+        text-align: left;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .header-brand-label {
+        margin-bottom: 0;
+        font-size: 9px;
+        letter-spacing: 0.12em;
+      }
+
+      .header-brand-region {
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        white-space: nowrap;
+      }
+
+      .main-content {
+        padding: 14px 12px 32px;
+      }
+
+      .main-content > div[style*="Report Date"] {
+        padding: 10px 12px !important;
+        align-items: flex-start !important;
+        flex-direction: column !important;
+        gap: 5px !important;
+      }
+
+      .card {
+        padding: 18px 14px;
+        margin-bottom: 14px;
+      }
+
+      .form-row,
+      .form-row.three {
+        grid-template-columns: 1fr !important;
+        gap: 14px;
+      }
+
+      .form-input,
+      .form-select {
+        height: 50px;
+        font-size: 16px;
+      }
+
+      .direction-group {
+        height: auto;
+        display: grid;
+        grid-template-columns: 1fr;
+        border: none;
+        gap: 8px;
+      }
+
+      .direction-btn {
+        height: 46px;
+        border: 1px solid #DCDCDC !important;
+      }
+
+      .totals-bar {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .total-item {
+        min-width: 0;
+        padding: 12px 8px;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+      }
+
+      .total-label {
+        font-size: 8px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .total-value { font-size: 24px; }
+
+      .grid-scroll-wrap {
+        overflow-x: visible;
+        margin: 0;
+        padding: 0;
+      }
+
+      .model-grid {
+        min-width: 0 !important;
+        width: 100%;
+        display: block;
+      }
+
+      .model-grid thead { display: none; }
+      .model-grid tbody { display: block; }
+
+      .model-grid tr {
+        display: block;
+        margin-bottom: 12px;
+        border: 1px solid #E3E3E3;
+        background: #fff;
+      }
+
+      .model-grid td {
+        display: grid;
+        grid-template-columns: 1fr 112px;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 10px 12px;
+        border-bottom: 1px solid #EFEFEF;
+        background: #fff !important;
+      }
+
+      .model-grid td.model-name {
+        display: block;
+        width: 100%;
+        padding: 12px;
+        font-size: 16px;
+        font-weight: 800;
+        background: #F5F5F5 !important;
+      }
+
+      .grid-section-label {
+        display: block !important;
+        width: 100% !important;
+        padding: 10px 12px !important;
+      }
+
+      .model-grid td:nth-child(2)::before { content: 'Enquiry'; }
+      .model-grid td:nth-child(3)::before { content: 'Test Drives'; }
+      .model-grid td:nth-child(4)::before { content: 'New Sold'; }
+      .model-grid td:nth-child(5)::before { content: 'Fleet (5+)'; }
+      .model-grid td:nth-child(6)::before { content: 'Demo Sold'; }
+      .model-grid td:nth-child(7)::before { content: 'Forecast'; }
+      .model-grid td.row-total::before { content: 'Total'; }
+
+      .model-grid td:not(.model-name)::before,
+      .model-grid td.row-total::before {
+        font-size: 10px;
+        color: #666;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        font-weight: 900;
+      }
+
+      .grid-input {
+        min-width: 0;
+        width: 112px;
+        height: 44px;
+        font-size: 17px;
+      }
+
+      .row-total {
+        text-align: right;
+        font-weight: 900;
+        color: #111;
+        background: #F4F4F4 !important;
+      }
+    }
+</style>
 </head>
 <body>
 
