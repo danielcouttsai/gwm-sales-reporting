@@ -160,6 +160,20 @@ async function postRows(rows) {
   return { ok: true };
 }
 
+/* ── API control call (POST to Apps Script) ─────────────── */
+async function postControl(payload) {
+  const url = GWM_CONFIG.scriptUrl;
+  if (!url) throw new Error('NO_URL');
+
+  await fetch(url, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return { ok: true };
+}
+
 /* ── API call (GET from Apps Script) ────────────────────── */
 async function fetchRows(params = {}) {
   const url = GWM_CONFIG.scriptUrl;

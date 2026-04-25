@@ -367,7 +367,7 @@
     .quick-entry-card { border-top: 3px solid #111; }
     .quick-entry-grid { display:grid; grid-template-columns:1.35fr 1fr 92px 116px 116px; gap:10px; align-items:end; }
     .quick-entry-actions { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
-    .quick-btn { height:40px; border:1px solid #DCDCDC; background:#fff; color:#111; font-family:var(--font); font-size:12px; font-weight:900; letter-spacing:0.08em; text-transform:uppercase; cursor:pointer; border-radius:0; }
+    .quick-btn { height:44px; border:1px solid #DCDCDC; background:#fff; color:#111; font-family:var(--font); font-size:12px; font-weight:900; letter-spacing:0.08em; text-transform:uppercase; cursor:pointer; border-radius:0; }
     .quick-btn:hover { border-color:#C41230; color:#C41230; }
     .quick-btn.primary { background:#111; color:#fff; border-color:#111; }
     .quick-btn.primary:hover { background:#C41230; border-color:#C41230; color:#fff; }
@@ -382,8 +382,23 @@
     .activity-log-empty { color:#999; font-size:12px; padding:4px 0; }
     .quick-jump-note { font-size:12px; color:#777; margin:4px 0 0; line-height:1.45; }
     @media (max-width:900px) { .quick-entry-grid { grid-template-columns:1fr 1fr; } }
-    @media (max-width:599px) { .quick-entry-grid { grid-template-columns:1fr; gap:12px; } .quick-entry-actions { grid-template-columns:1fr 1fr; } .quick-btn { height:46px; } .quick-summary { align-items:flex-start; flex-direction:column; } .activity-log-row { grid-template-columns:1fr; } }
+    @media (max-width:599px) {
+      .quick-entry-grid { grid-template-columns:1fr !important; gap:12px; }
+      .quick-entry-actions { grid-template-columns:1fr 1fr; }
+      .quick-btn { height:48px; font-size:14px; }
+      .quick-summary { align-items:flex-start; flex-direction:column; }
+      .activity-log-row { grid-template-columns:1fr; }
+      .mobile-summary-bar { display:flex !important; position:sticky; bottom:0; z-index:70; background:#111; color:#fff; border-top:3px solid #C41230; padding:10px 12px; justify-content:space-between; gap:8px; font-size:11px; font-weight:900; letter-spacing:0.06em; text-transform:uppercase; }
+      .mobile-summary-bar span { color:rgba(255,255,255,0.55); }
+      .mobile-summary-bar strong { color:#fff; }
+      .model-grid-collapsed .grid-scroll-wrap { display:none; }
+      .grid-toggle-mobile { display:block !important; width:100%; height:46px; margin:12px 0 0; }
+    }
 
+    .mobile-summary-bar { display:none; }
+    .grid-toggle-mobile { display:none; }
+    .unlock-banner { display:none; background:#FFF3E0; border:1px solid #FFCC80; border-left:3px solid #C84B00; color:#7B4800; padding:10px 14px; font-size:12px; font-weight:700; margin-bottom:14px; }
+    .submitted-banner { display:none; background:#E8F5E9; border:1px solid #A5D6A7; border-left:3px solid #2E7D32; color:#1B5E20; padding:10px 14px; font-size:12px; font-weight:700; margin-bottom:14px; }
 </style>
 </head>
 <body>
@@ -433,6 +448,8 @@
 
   <!-- ── Form ───────────────────────────────────────────── -->
   <form id="sales-form" novalidate>
+    <div class="unlock-banner" id="unlock-banner">OEM has reopened this dealer's submission for today. Existing data has been restored, update and resubmit to overwrite the prior version.</div>
+    <div class="submitted-banner" id="submitted-banner">✓ Submitted for today. Contact OEM to reopen if changes are required.</div>
 
     <!-- Dealer details card -->
     <div class="card">
@@ -483,7 +500,7 @@
     <!-- Quick Activity Entry -->
     <div class="card quick-entry-card" id="quick-entry-card">
       <div class="card-title" style="margin-bottom:8px;">Quick Activity Entry</div>
-      <p class="quick-jump-note">Fast mode: select the model and activity, then add the quantity. The model grid below updates automatically, so dealers can use either method.</p>
+      <p class="quick-jump-note">Fast mode: select the model and activity, then add the quantity. The model grid below updates automatically, so dealers can use either method. Leave this page open all day, it autosaves locally until you submit.</p>
       <div class="quick-entry-grid" style="margin-top:14px;">
         <div class="form-field"><label class="form-label" for="quick-model">Model Bucket</label><select class="form-select" id="quick-model"><option value="">— Select model —</option></select></div>
         <div class="form-field"><label class="form-label" for="quick-metric">Activity Type</label><select class="form-select" id="quick-metric"><option value="enquiry">Enquiry</option><option value="test_drives">Test Drives</option><option value="new_sold">New Sold</option><option value="fleet">Fleet (5+)</option><option value="demo_sold">Demo Sold</option><option value="forecast">Forecast</option></select></div>
@@ -529,8 +546,9 @@
     <div class="card" style="padding-bottom:8px;">
       <div class="card-title" style="margin-bottom:4px;">Model Bucket Activity</div>
       <p style="font-size:12px;color:rgba(255,255,255,0.35);margin-bottom:12px;">
-        Enter today's figures per model. Use Tab to move between cells. All values default to 0.
+        Enter today's figures per model. Use Tab to move between cells. Blank means not entered, 0 means true zero.
       </p>
+      <button type="button" class="quick-btn grid-toggle-mobile" id="grid-toggle-mobile" onclick="toggleMobileGrid()">Show Full Model Breakdown</button>
 
       <div class="grid-scroll-wrap">
         <table class="model-grid" id="model-grid">
@@ -569,6 +587,13 @@
 
   </form><!-- /sales-form -->
 
+  <div class="mobile-summary-bar" id="mobile-summary-bar">
+    <div><span>Enq</span> <strong id="mob-enq">0</strong></div>
+    <div><span>TD</span> <strong id="mob-td">0</strong></div>
+    <div><span>Sold</span> <strong id="mob-sold">0</strong></div>
+    <div><span>Fcst</span> <strong id="mob-forecast">0</strong></div>
+  </div>
+
 </main>
 
 <!-- ── Toast ─────────────────────────────────────────────── -->
@@ -605,6 +630,8 @@ const MODEL_GROUPS = {
 let selectedDirection = '';
 let gridData = {};   // { modelName: { enquiry:0, test_drives:0, ... } }
 let submittedDealerCodes = new Set();
+let unlockedDealerCodes = new Set();
+let existingSubmissionCache = {};
 let quickActivityLog = [];
 let activeReportDate = reportingDateISO();
 let draftSaveTimer = null;
@@ -618,6 +645,7 @@ document.addEventListener('DOMContentLoaded', init);
 function init() {
   buildModelGrid();
   initQuickEntry();
+  initialiseMobileGridState();
   setDateFields();
   startClock();
   checkLateStatus();
@@ -631,14 +659,14 @@ function init() {
     const sel = document.getElementById('dealer-select');
     if (savedDealer && Array.from(sel.options).some(o => o.value === savedDealer)) {
       sel.value = savedDealer;
-      loadForecastForSelectedDealer().then(loadDraftForSelectedDealer);
+      loadForecastForSelectedDealer().then(loadExistingSubmissionIfUnlocked).then(loadDraftForSelectedDealer);
     }
     updateSubmitPreview();
   });
 
   document.getElementById('dealer-select').addEventListener('change', () => {
     updateSubmitPreview();
-    loadForecastForSelectedDealer().then(loadDraftForSelectedDealer);
+    loadForecastForSelectedDealer().then(loadExistingSubmissionIfUnlocked).then(loadDraftForSelectedDealer);
   });
   document.getElementById('submitted-by').addEventListener('input', () => { updateSubmitPreview(); queueDraftSave(); });
   document.getElementById('sales-form').addEventListener('submit', handleSubmit);
@@ -652,7 +680,7 @@ function populateDealerDropdown() {
   sel.innerHTML = '<option value="">— Select dealer —</option>';
 
   DEALERS
-    .filter(d => !submittedDealerCodes.has(d.code))
+    .filter(d => !submittedDealerCodes.has(d.code) || unlockedDealerCodes.has(d.code))
     .forEach(d => {
       const opt = document.createElement('option');
       opt.value = d.code;
@@ -666,22 +694,46 @@ function populateDealerDropdown() {
 async function refreshAvailableDealers() {
   const reportDate = reportingDateISO();
   let rows = [];
+  let unlocked = [];
 
   try {
     if (GWM_CONFIG.scriptUrl) {
-      const data = await fetchRows({ date: reportDate });
+      const data = await fetchRows({ date: reportDate, include_controls: '1' });
       rows = Array.isArray(data) ? data : (data.rows || []);
+      unlocked = Array.isArray(data?.unlockedDealerCodes) ? data.unlockedDealerCodes : [];
     } else {
       rows = JSON.parse(localStorage.getItem('gwm_submissions') || '[]').filter(r => r.report_date === reportDate);
+      unlocked = getLocalUnlockedDealers(reportDate);
     }
   } catch (err) {
     console.warn('Dealer availability check failed:', err);
     rows = JSON.parse(localStorage.getItem('gwm_submissions') || '[]').filter(r => r.report_date === reportDate);
+    unlocked = getLocalUnlockedDealers(reportDate);
   }
 
   submittedDealerCodes = new Set(rows.map(r => String(r.dealer_code || '').trim()).filter(Boolean));
+  existingSubmissionCache = {};
+  rows.forEach(r => {
+    const code = String(r.dealer_code || '').trim();
+    if (!code) return;
+    if (!existingSubmissionCache[code]) existingSubmissionCache[code] = [];
+    existingSubmissionCache[code].push(r);
+  });
+  unlockedDealerCodes = new Set(unlocked.map(x => String(x || '').trim()).filter(Boolean));
   populateDealerDropdown();
   updateSubmitPreview();
+}
+
+function getLocalUnlockedDealers(reportDate) {
+  try { return JSON.parse(localStorage.getItem(`gwm_unlocked_${reportDate}`) || '[]'); }
+  catch (_) { return []; }
+}
+
+function setLocalUnlock(dealerCode, reportDate, shouldUnlock) {
+  const key = `gwm_unlocked_${reportDate}`;
+  const set = new Set(getLocalUnlockedDealers(reportDate));
+  if (shouldUnlock) set.add(dealerCode); else set.delete(dealerCode);
+  localStorage.setItem(key, JSON.stringify(Array.from(set)));
 }
 
 function scheduleDealerResetRefresh() {
@@ -816,6 +868,8 @@ function updateLiveTotals() {
   document.getElementById('tot-fleet').textContent   = totals.fleet;
   document.getElementById('tot-demo').textContent    = totals.demo_sold;
   document.getElementById('tot-forecast').textContent = totals.forecast;
+  const mob = { 'mob-enq': totals.enquiry, 'mob-td': totals.test_drives, 'mob-sold': totals.new_sold, 'mob-forecast': totals.forecast };
+  Object.keys(mob).forEach(id => { const el = document.getElementById(id); if (el) el.textContent = mob[id]; });
 }
 
 /* ── Direction selector ──────────────────────────────────── */
@@ -873,8 +927,8 @@ function validate() {
   if (!dealerEl.value) {
     errors.push('Please select a dealer.');
     dealerEl.classList.add('error');
-  } else if (submittedDealerCodes.has(dealerEl.value)) {
-    errors.push('This dealer has already submitted today. It will reopen automatically from 7:00 AM tomorrow.');
+  } else if (submittedDealerCodes.has(dealerEl.value) && !unlockedDealerCodes.has(dealerEl.value)) {
+    errors.push('This dealer has already submitted today. It will reopen automatically from 7:00 AM tomorrow, or OEM can reopen it from the dashboard.');
     dealerEl.classList.add('error');
   } else { dealerEl.classList.remove('error'); }
 
@@ -977,10 +1031,15 @@ function handleSuccess(rows) {
   saveForecastForSelectedDealer();
   clearDraftForSelectedDealer();
   formOpenedAt = Date.now();
-  submittedDealerCodes.add(document.getElementById('dealer-select').value);
+  const submittedDealer = document.getElementById('dealer-select').value;
+  submittedDealerCodes.add(submittedDealer);
+  unlockedDealerCodes.delete(submittedDealer);
+  setLocalUnlock(submittedDealer, reportingDateISO(), false);
 
   // Save to local history (for offline dashboard demo)
-  const history = JSON.parse(localStorage.getItem('gwm_submissions') || '[]');
+  let history = JSON.parse(localStorage.getItem('gwm_submissions') || '[]');
+  const date = reportingDateISO();
+  history = history.filter(r => !(r.report_date === date && r.dealer_code === submittedDealer));
   rows.forEach(r => history.push(r));
   // Keep last 2000 rows
   if (history.length > 2000) history.splice(0, history.length - 2000);
@@ -1072,6 +1131,52 @@ async function loadForecastForSelectedDealer() {
   applyForecastMap(forecast || {});
 }
 
+
+
+function loadExistingSubmissionIfUnlocked() {
+  const dealerCode = document.getElementById('dealer-select').value;
+  const banner = document.getElementById('unlock-banner');
+  if (!dealerCode || !unlockedDealerCodes.has(dealerCode)) {
+    if (banner) banner.style.display = 'none';
+    return Promise.resolve();
+  }
+  const rows = existingSubmissionCache[dealerCode] || [];
+  if (banner) banner.style.display = 'block';
+  if (!rows.length) return Promise.resolve();
+  rows.forEach(r => {
+    const model = r.model_bucket;
+    if (!gridData[model]) return;
+    ['enquiry','test_drives','new_sold','fleet','fleet_5_plus','demo_sold','forecast'].forEach(k => {
+      const col = k === 'fleet_5_plus' ? 'fleet' : k;
+      if (!GRID_COLS.some(c => c.key === col)) return;
+      const raw = r[k];
+      if (raw === '' || raw === null || raw === undefined) return;
+      setGridValue(model, col, safeInt(raw), false);
+    });
+  });
+  const first = rows[0] || {};
+  if (first.submitted_by) document.getElementById('submitted-by').value = first.submitted_by;
+  if (first.direction) setDirection(first.direction);
+  manualGridEditCount = 0;
+  quickActivityLog = [];
+  renderActivityLog();
+  updateQuickSummary();
+  setDraftStatus('Reopened submission restored');
+  return Promise.resolve();
+}
+
+function initialiseMobileGridState() {
+  const card = document.getElementById('model-grid')?.closest('.card');
+  if (card && window.matchMedia('(max-width: 599px)').matches) card.classList.add('model-grid-collapsed');
+}
+
+function toggleMobileGrid() {
+  const card = document.getElementById('model-grid')?.closest('.card');
+  const btn = document.getElementById('grid-toggle-mobile');
+  if (!card || !btn) return;
+  const collapsed = card.classList.toggle('model-grid-collapsed');
+  btn.textContent = collapsed ? 'Show Full Model Breakdown' : 'Hide Full Model Breakdown';
+}
 
 /* ── Quick activity entry + live draft ───────────────────── */
 function initQuickEntry() {

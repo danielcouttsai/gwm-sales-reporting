@@ -376,6 +376,14 @@
     .row-missing td:first-child { border-left: 3px solid #C41230; }
     .row-missing td { color: #aaa; }
 
+    .unlock-action-btn {
+      height: 28px; padding: 0 10px; border: 1px solid #DCDCDC; background: #fff;
+      color: #111; font-family: var(--font); font-size: 10px; font-weight: 800;
+      letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; border-radius: 0;
+    }
+    .unlock-action-btn:hover { border-color: #C41230; color: #C41230; }
+    .unlock-action-btn:disabled { opacity: .35; cursor: not-allowed; }
+
     /* Better filter card */
     .filter-card {
       background: #fff;
@@ -545,10 +553,11 @@
               <th class="num">Enquiries</th>
               <th class="num">New Sold</th>
               <th class="num">Forecast</th>
+              <th>OEM Action</th>
             </tr>
           </thead>
           <tbody id="tbody-compliance">
-            <tr><td colspan="8" class="no-data">Loading…</td></tr>
+            <tr><td colspan="9" class="no-data">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -639,7 +648,7 @@
             </tr>
           </thead>
           <tbody id="tbody-models">
-            <tr><td colspan="8" class="no-data">Loading…</td></tr>
+            <tr><td colspan="9" class="no-data">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -1074,6 +1083,7 @@ function renderComplianceTable() {
       <td class="num">${data ? data.enquiry  : '—'}</td>
       <td class="num">${data ? data.new_sold : '—'}</td>
       <td class="num">${data ? data.forecast : '—'}</td>
+      <td>${data ? `<button type="button" class="unlock-action-btn" onclick="unlockDealerSubmission('${d.code}', '${dateVal}')">Reopen</button>` : '—'}</td>
     `;
     tbody.appendChild(tr);
   });
@@ -1081,6 +1091,28 @@ function renderComplianceTable() {
   const submitted = Object.keys(byDealer).length;
   document.getElementById('compliance-summary').textContent =
     `${submitted} of ${DEALERS.length} dealers · ${Math.round(submitted/DEALERS.length*100)}% compliance`;
+}
+
+
+async function unlockDealerSubmission(dealerCode, reportDate) {
+  const dealer = DEALERS.find(d => d.code === dealerCode);
+  const label = dealer ? `${dealer.code} – ${dealer.name}` : dealerCode;
+  if (!confirm(`Reopen today's submission for ${label}?\\n\\nThe dealer will be able to open the input form, see the submitted data, update it and resubmit. Their resubmission will overwrite the current rows.`)) return;
+
+  try {
+    if (GWM_CONFIG.scriptUrl) {
+      await postControl({ action: 'unlock_submission', dealer_code: dealerCode, report_date: reportDate, unlocked_by: 'OEM Dashboard' });
+    } else {
+      const key = `gwm_unlocked_${reportDate}`;
+      const set = new Set(JSON.parse(localStorage.getItem(key) || '[]'));
+      set.add(dealerCode);
+      localStorage.setItem(key, JSON.stringify(Array.from(set)));
+    }
+    showToast(`${dealerCode} reopened for update.`, 'success');
+    loadData();
+  } catch (err) {
+    showToast('Failed to reopen dealer: ' + err.message, 'error');
+  }
 }
 
 /* ── Model summary table ─────────────────────────────────── */

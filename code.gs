@@ -13,6 +13,7 @@
 // ── Configuration ────────────────────────────────────────
 const SHEET_ID   = 'YOUR_GOOGLE_SHEET_ID_HERE';   // ← Replace with your Sheet ID
 const SHEET_NAME = 'submissions';                  // Tab name in your Google Sheet
+const CONTROL_SHEET_NAME = 'submission_controls';   // OEM reopen / lock control tab
 const ACCESS_CODE = '';                            // Optional: set a shared access code e.g. 'gwm2025'
                                                    // Leave empty to allow all requests
 
@@ -65,14 +66,14 @@ function doGet(e) {
         row[h] = data[i][j];
       });
 
-      // Normalise date before filtering. Google Sheets may return a Date object.
-      row['report_date'] = normaliseSheetDate(row['report_date']);
+      const rowReportDate = normaliseSheetDate(row['report_date']);
+      row['report_date'] = rowReportDate;
 
       // Filter by date if provided
-      if (params.date && row['report_date'] !== params.date) continue;
+      if (params.date && rowReportDate !== String(params.date).trim()) continue;
 
       // Filter by dealer if provided
-      if (params.dealer && row['dealer_code'] !== params.dealer) continue;
+      if (params.dealer && String(row['dealer_code']).trim() !== String(params.dealer).trim()) continue;
 
       // Normalise boolean fields
       row['is_late'] = row['is_late'] === true || row['is_late'] === 'TRUE' || row['is_late'] === 1;
@@ -81,7 +82,11 @@ function doGet(e) {
       rows.push(row);
     }
 
-    return jsonResponse({ rows });
+    const payload = { rows };
+    if (params.include_controls === '1' && params.date) {
+      payload.unlockedDealerCodes = getUnlockedDealerCodes(params.date);
+    }
+    return jsonResponse(payload);
   } catch (err) {
     return jsonResponse({ error: err.message }, 500);
   }
@@ -91,6 +96,16 @@ function doGet(e) {
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
+
+    // OEM dashboard control actions.
+    if (body.action === 'unlock_submission') {
+      if (ACCESS_CODE && body.code !== ACCESS_CODE) {
+        return jsonResponse({ error: 'Unauthorized' }, 403);
+      }
+      recordSubmissionUnlock(body.dealer_code, body.report_date, body.unlocked_by || 'OEM Dashboard');
+      return jsonResponse({ success: true, action: 'unlock_submission', dealer_code: body.dealer_code, report_date: body.report_date });
+    }
+
     const rows = body.rows;
 
     if (!rows || !Array.isArray(rows) || rows.length === 0) {
@@ -111,6 +126,7 @@ function doPost(e) {
     const reportDate = rows[0].report_date;
     const existingForecasts = getExistingMonthlyForecasts(sheet, dealerCode, reportDate);
     deleteExistingSubmissionRows(sheet, dealerCode, reportDate);
+    clearSubmissionUnlock(dealerCode, reportDate);
 
     const appended = [];
     rows.forEach(row => {
@@ -158,27 +174,21 @@ function getSheet() {
 function ensureHeaders(sheet) {
   if (sheet.getLastRow() === 0) {
     sheet.appendRow(COLUMNS);
-  } else {
-    const existing = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), COLUMNS.length)).getValues()[0].map(h => String(h || '').trim());
-    const needsUpgrade = COLUMNS.some((col, i) => existing[i] !== col);
-    if (needsUpgrade) {
-      sheet.getRange(1, 1, 1, COLUMNS.length).setValues([COLUMNS]);
-    }
+    // Style the header row
+    const headerRange = sheet.getRange(1, 1, 1, COLUMNS.length);
+    headerRange.setFontWeight('bold');
+    headerRange.setBackground('#111111');
+    headerRange.setFontColor('#FFFFFF');
+    sheet.setFrozenRows(1);
+    // Set column widths
+    sheet.setColumnWidth(1, 180);  // submitted_at
+    sheet.setColumnWidth(2, 110);  // report_date
+    sheet.setColumnWidth(5, 200);  // dealer_name
+    sheet.setColumnWidth(9, 160);  // is_complete_submission
+    sheet.setColumnWidth(10, 130); // input_method
+    sheet.setColumnWidth(12, 180); // last_updated_at
+    sheet.setColumnWidth(13, 160); // model_bucket
   }
-
-  // Style the header row and keep widths consistent.
-  const headerRange = sheet.getRange(1, 1, 1, COLUMNS.length);
-  headerRange.setFontWeight('bold');
-  headerRange.setBackground('#111111');
-  headerRange.setFontColor('#FFFFFF');
-  sheet.setFrozenRows(1);
-  sheet.setColumnWidth(1, 180);  // submitted_at
-  sheet.setColumnWidth(2, 110);  // report_date
-  sheet.setColumnWidth(5, 200);  // dealer_name
-  sheet.setColumnWidth(9, 160);  // is_complete_submission
-  sheet.setColumnWidth(10, 130); // input_method
-  sheet.setColumnWidth(12, 180); // last_updated_at
-  sheet.setColumnWidth(13, 160); // model_bucket
 }
 
 
@@ -232,6 +242,60 @@ function deleteExistingSubmissionRows(sheet, dealerCode, reportDate) {
       sheet.deleteRow(i + 2);
     }
   }
+}
+
+
+function getControlSheet() {
+  const ss = SHEET_ID
+    ? SpreadsheetApp.openById(SHEET_ID)
+    : SpreadsheetApp.getActiveSpreadsheet();
+
+  let sheet = ss.getSheetByName(CONTROL_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(CONTROL_SHEET_NAME);
+    sheet.appendRow(['dealer_code', 'report_date', 'status', 'unlocked_at', 'unlocked_by']);
+    sheet.getRange(1, 1, 1, 5).setFontWeight('bold').setBackground('#111111').setFontColor('#FFFFFF');
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function recordSubmissionUnlock(dealerCode, reportDate, unlockedBy) {
+  if (!dealerCode || !reportDate) throw new Error('dealer_code and report_date are required');
+  const sheet = getControlSheet();
+  clearSubmissionUnlock(dealerCode, reportDate);
+  sheet.appendRow([String(dealerCode).trim(), String(reportDate).trim(), 'UNLOCKED', new Date().toISOString(), unlockedBy || 'OEM Dashboard']);
+}
+
+function clearSubmissionUnlock(dealerCode, reportDate) {
+  const sheet = getControlSheet();
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return;
+
+  const data = sheet.getRange(2, 1, lastRow - 1, 5).getValues();
+  for (let i = data.length - 1; i >= 0; i--) {
+    const rowDealer = String(data[i][0] || '').trim();
+    const rowDate = normaliseSheetDate(data[i][1]);
+    if (rowDealer === String(dealerCode).trim() && rowDate === String(reportDate).trim()) {
+      sheet.deleteRow(i + 2);
+    }
+  }
+}
+
+function getUnlockedDealerCodes(reportDate) {
+  const sheet = getControlSheet();
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return [];
+
+  const data = sheet.getRange(2, 1, lastRow - 1, 5).getValues();
+  const out = [];
+  data.forEach(row => {
+    const rowDealer = String(row[0] || '').trim();
+    const rowDate = normaliseSheetDate(row[1]);
+    const status = String(row[2] || '').trim().toUpperCase();
+    if (rowDealer && rowDate === String(reportDate).trim() && status === 'UNLOCKED') out.push(rowDealer);
+  });
+  return Array.from(new Set(out));
 }
 
 function normaliseSheetDate(value) {
