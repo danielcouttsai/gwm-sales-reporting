@@ -900,7 +900,7 @@ async function loadData() {
     if (GWM_CONFIG.scriptUrl) {
       // Live mode — fetch from Apps Script
       document.getElementById('demo-ribbon').style.display = 'none';
-      const data = await fetchRows({ date: dateFilter });
+      const data = await fetchRows({});
       allRows = Array.isArray(data) ? data : (data.rows || []);
     } else {
       // Demo mode — generate sample data
@@ -908,18 +908,19 @@ async function loadData() {
 
       // Merge with any locally submitted rows for today
       const localHistory = JSON.parse(localStorage.getItem('gwm_submissions') || '[]');
-      const localToday   = localHistory.filter(r => r.report_date === dateFilter);
-      const demoRows     = generateDemoData(dateFilter);
+      const demoRows = [];
+      for (let i = 45; i >= 0; i--) { demoRows.push(...generateDemoData(isoShift(dateFilter, -i))); }
 
-      // Use local submissions for dealers that submitted locally; fill rest with demo
-      const localDealers = new Set(localToday.map(r => r.dealer_code));
-      const demoFiltered = demoRows.filter(r => !localDealers.has(r.dealer_code));
-      allRows = [...localToday, ...demoFiltered];
+      // Use local submissions for any matching dealer/date combination; fill rest with demo history
+      const localDealerDates = new Set(localHistory.map(r => `${r.report_date}|${r.dealer_code}`));
+      const demoFiltered = demoRows.filter(r => !localDealerDates.has(`${r.report_date}|${r.dealer_code}`));
+      allRows = [...localHistory, ...demoFiltered];
     }
   } catch (err) {
     console.error('Load error:', err);
     showToast('Failed to load data: ' + err.message, 'error');
-    allRows = generateDemoData(dateFilter);
+    allRows = [];
+    for (let i = 45; i >= 0; i--) { allRows.push(...generateDemoData(isoShift(dateFilter, -i))); }
   }
 
   applyFilters();
@@ -1009,8 +1010,9 @@ function renderKPIs() {
     return d.toISOString().slice(0,10);
   }
   const prevDay = isoOffset(dateVal, -7);
-  const prevSold = allRows.filter(r => r.report_date === prevDay).reduce((a,r) => a+(parseInt(r.new_sold)||0),0);
-  const prevEnq  = allRows.filter(r => r.report_date === prevDay).reduce((a,r) => a+(parseInt(r.enquiry)||0),0);
+  const prevRows = rowsForDateWithCurrentFilters(prevDay);
+  const prevSold = prevRows.reduce((a,r) => a+(parseInt(r.new_sold)||0),0);
+  const prevEnq  = prevRows.reduce((a,r) => a+(parseInt(r.enquiry)||0),0);
   function heroDelta(cur, prev) {
     if (prev === 0) return { text: '', cls: 'flat' };
     const pct = Math.round(((cur - prev) / prev) * 100);
@@ -1365,10 +1367,12 @@ function renderTrends() {
   const tbody = document.getElementById('tbody-wow-model');
   tbody.innerHTML = '';
   MODEL_BUCKETS.forEach(model => {
-    const curEnq2  = allRows.filter(r => r.report_date === dateVal && r.model_bucket === model).reduce((a,r) => a+(parseInt(r.enquiry)||0),0);
-    const prevEnq2 = allRows.filter(r => r.report_date === prevDay  && r.model_bucket === model).reduce((a,r) => a+(parseInt(r.enquiry)||0),0);
-    const curSold2  = allRows.filter(r => r.report_date === dateVal && r.model_bucket === model).reduce((a,r) => a+(parseInt(r.new_sold)||0),0);
-    const prevSold2 = allRows.filter(r => r.report_date === prevDay  && r.model_bucket === model).reduce((a,r) => a+(parseInt(r.new_sold)||0),0);
+    const curModelRows = rowsForDateWithCurrentFilters(dateVal).filter(r => r.model_bucket === model);
+    const prevModelRows = rowsForDateWithCurrentFilters(prevDay).filter(r => r.model_bucket === model);
+    const curEnq2  = curModelRows.reduce((a,r) => a+(parseInt(r.enquiry)||0),0);
+    const prevEnq2 = prevModelRows.reduce((a,r) => a+(parseInt(r.enquiry)||0),0);
+    const curSold2  = curModelRows.reduce((a,r) => a+(parseInt(r.new_sold)||0),0);
+    const prevSold2 = prevModelRows.reduce((a,r) => a+(parseInt(r.new_sold)||0),0);
     const enqD  = delta(curEnq2, prevEnq2);
     const soldD = delta(curSold2, prevSold2);
     if (curEnq2 === 0 && prevEnq2 === 0 && curSold2 === 0 && prevSold2 === 0) return;
@@ -1392,7 +1396,7 @@ function renderTrends() {
 
 /* ── Model intelligence helpers ─────────────────────────── */
 function nVal(v) { return parseInt(v, 10) || 0; }
-function activityTotal(r) { return nVal(r.enquiry) + nVal(r.test_drives) + nVal(r.new_sold) + nVal(r.fleet) + nVal(r.demo_sold) + nVal(r.forecast); }
+function activityTotal(r) { return nVal(r.enquiry) + nVal(r.test_drives) + nVal(r.new_sold) + nVal(r.fleet) + nVal(r.demo_sold); }
 function totalSoldRow(r) { return nVal(r.new_sold) + nVal(r.demo_sold) + nVal(r.fleet); }
 function pctText(cur, prev) {
   if (prev === 0 && cur === 0) return { text: '—', cls: 'flat', pct: 0 };
@@ -1557,10 +1561,10 @@ function renderModelFunnel() {
     const enqSold = a.enquiry > 0 ? Math.round((a.total_sold / a.enquiry) * 100) : 0;
     const tdSold = a.test_drives > 0 ? Math.round((a.total_sold / a.test_drives) * 100) : 0;
     let read = { label: 'Low Activity', cls: 'quiet' };
-    if (a.enquiry > 0 && enqSold >= 25) read = { label: 'Strong', cls: 'strong' };
-    else if (a.enquiry >= 5 && enqSold < 10) read = { label: 'Weak', cls: 'weak' };
-    else if (a.enquiry >= 5 && a.test_drives === 0) read = { label: 'Follow-up Gap', cls: 'gap' };
+    if (a.enquiry >= 5 && a.test_drives === 0) read = { label: 'Follow-up Gap', cls: 'gap' };
     else if (a.test_drives >= 3 && tdSold < 15) read = { label: 'Closing Gap', cls: 'gap' };
+    else if (a.enquiry > 0 && enqSold >= 25) read = { label: 'Strong', cls: 'strong' };
+    else if (a.enquiry >= 5 && enqSold < 10) read = { label: 'Weak', cls: 'weak' };
     else if (a.total_sold > 0) read = { label: 'Converting', cls: 'closing' };
     return { model, a, enqTd, enqSold, tdSold, read };
   }).filter(x => Object.values({e:x.a.enquiry,t:x.a.test_drives,n:x.a.new_sold,f:x.a.fleet,d:x.a.demo_sold,fc:x.a.forecast}).some(v => v > 0));
