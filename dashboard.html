@@ -3,11 +3,48 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#111111">
+  <meta name="theme-color" content="#000000">
   <title>GWM Sales Dashboard – Southern Region</title>
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
+    /* ── Matching header style from dealer form ── */
+    .site-header {
+      height: auto;
+      padding: 0;
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .header-top-strip {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      padding: 6px 24px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .header-brandbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 24px 16px;
+      border-bottom: 3px solid #C41230;
+    }
+    .gwm-wordmark-img { height: 40px; object-fit: contain; }
+    .header-brand-right { text-align: right; }
+    .header-brand-label {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.14em;
+      text-transform: uppercase; color: rgba(255,255,255,0.4); line-height: 1; margin-bottom: 4px;
+    }
+    .header-brand-region {
+      font-size: 13px; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: rgba(255,255,255,0.8);
+    }
+    .header-actions {
+      display: flex; gap: 8px; align-items: center;
+    }
+
+    /* ── Dashboard page styles ── */
     .dash-section { margin-bottom: 24px; }
     .missing-pill {
       display: inline-block; padding: 2px 8px;
@@ -32,11 +69,7 @@
     }
     .trend-range button.active { background: var(--red); color: #fff; border-color: var(--red); }
     .no-data { text-align:center; padding: 40px 20px; color: var(--gray-400); font-size:13px; }
-
-    /* Config panel */
-    .config-panel {
-      position: fixed; bottom: 24px; right: 24px; z-index: 90;
-    }
+    .config-panel { position: fixed; bottom: 24px; right: 24px; z-index: 90; }
     .config-panel-btn {
       width: 44px; height: 44px; border-radius: 50%;
       background: var(--black); color: #fff; border: none;
@@ -53,24 +86,33 @@
     .config-drawer.open { display: block; }
     .config-drawer h3 { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
     .config-drawer p  { font-size: 12px; color: var(--gray-600); margin-bottom: 12px; }
+
+    /* Tighter Knox typography */
+    .card-title, .filter-label, .kpi-label, .chart-title,
+    .section-header h2, .page-tab {
+      letter-spacing: 0.1em;
+    }
   </style>
 </head>
 <body>
 
 <!-- ── Header ───────────────────────────────────────────── -->
 <header class="site-header">
-  <div class="header-left">
-    <a class="gwm-logo" href="index.html">
+  <div class="header-top-strip">
+    <span class="header-clock" id="live-clock">--:-- --</span>
+    <div class="header-actions">
+      <button class="btn btn-secondary refresh-btn" onclick="loadData()" style="height:30px;padding:0 12px;font-size:11px;">↻ Refresh</button>
+      <a href="index.html" class="btn btn-outline" style="height:30px;padding:0 12px;font-size:11px;">+ Input</a>
+    </div>
+  </div>
+  <div class="header-brandbar">
+    <a class="gwm-logo" href="dashboard.html">
       <img src="gwm-wordmark.png" class="gwm-wordmark-img" alt="GWM Australia">
     </a>
-    <span class="header-title">Sales Dashboard — Southern Region</span>
-  </div>
-  <div class="header-right">
-    <span class="header-clock" id="live-clock">--:-- --</span>
-    <button class="btn btn-secondary refresh-btn" onclick="loadData()" style="height:34px;padding:0 14px;font-size:12px;">
-      ↻ Refresh
-    </button>
-    <a href="index.html" class="btn btn-outline" style="height:34px;padding:0 14px;font-size:12px;">+ Input</a>
+    <div class="header-brand-right">
+      <div class="header-brand-label">Sales Dashboard</div>
+      <div class="header-brand-region">Southern Region</div>
+    </div>
   </div>
 </header>
 
