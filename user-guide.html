@@ -285,6 +285,35 @@
     p { font-size: 13px; line-height: 1.7; color: #444; margin: 0 0 10px; }
     h3 { font-size: 13px; font-weight: 700; color: #111; margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.06em; }
     hr { border: none; border-top: 1px solid #EFEFEF; margin: 28px 0; }
+
+
+    /* ── Final rollout guide mobile/desktop optimisation ── */
+    .process-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 14px 0; }
+    .process-card { background: #F7F7F7; border: 1px solid #E8E8E8; border-left: 3px solid #111; border-radius: 4px; padding: 14px 16px; }
+    .process-card.red { border-left-color: #C41230; }
+    .process-card.green { border-left-color: #2E7D32; }
+    .process-card h4 { font-size: 12px; font-weight: 800; color: #111; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.06em; }
+    .process-card ol, .process-card ul { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.65; color: #444; }
+    .rule-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+    .rule-item { background: #fff; border: 1px solid #E8E8E8; border-radius: 4px; padding: 10px 12px; font-size: 12px; line-height: 1.45; color: #444; }
+    .rule-item strong { color: #111; }
+    .schema-scroll { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .schema-scroll .schema-table { min-width: 620px; }
+    @media (max-width: 700px) {
+      .guide-body { padding: 20px 14px 56px; }
+      .cover { padding: 28px 22px 26px; border-radius: 4px; }
+      .cover h1 { font-size: 22px; }
+      .cover-meta { gap: 12px; }
+      .toc { padding: 16px 18px; }
+      .section-head { align-items: flex-start; gap: 10px; }
+      .section-num { width: 32px; height: 32px; font-size: 13px; }
+      .section-title { font-size: 16px; }
+      .link-card { align-items: flex-start; padding: 12px; }
+      .link-card-icon { width: 34px; height: 34px; font-size: 16px; }
+      .two-col, .process-grid, .rule-list { grid-template-columns: 1fr; }
+      .print-btn { position: static; width: 100%; margin-top: 18px; }
+    }
+
   </style>
 </head>
 <body>
@@ -330,6 +359,7 @@
     <ol>
       <li><a href="#overview">System Overview &amp; Key Links</a></li>
       <li><a href="#dealer-guide">Dealer Guide — Submitting Your Daily Report</a></li>
+      <li><a href="#daily-rules">Daily Rules, Reopen Process &amp; Live Use</a></li>
       <li><a href="#dashboard-guide">Dashboard Guide — Viewing Live Results</a></li>
       <li><a href="#sheets-guide">Google Sheets — Accessing Raw Data</a></li>
       <li><a href="#powerbi-guide">Power BI — Connecting &amp; Building Reports</a></li>
@@ -483,12 +513,66 @@
       </tbody>
     </table>
 
-    <div class="info-box note">
-      <strong>Reopening a submission:</strong> If a dealer needs to update after submitting, OEM can reopen that dealer from the dashboard. The dealer will see their previous data restored, can update it, and resubmission overwrites the prior dealer/date rows. Without a dashboard reopen, the backend rejects duplicate dealer/date submissions.
-    </div>
-
     <div class="info-box tip">
       <strong>Tip:</strong> Quick Activity Entry is the fastest method. The page autosaves locally while left open during the day. Forecast carries through the month unless changed, and a blank forecast will not wipe the prior monthly forecast.
+    </div>
+
+    <h3 id="daily-rules">After You Submit</h3>
+    <div class="info-box note">
+      <strong>What happens after submission:</strong><br>
+      ✓ Your report is locked for the day.<br>
+      ✓ Your data is immediately available in the dashboard.<br>
+      ✓ You cannot edit after submission unless GWM reopens it.<br><br>
+      If a change is required, contact GWM. Once reopened, your previous data will appear in the form, you can update it, and your resubmission will overwrite the earlier dealer/date rows.<br><br>
+      <strong>Only the latest submitted version counts.</strong>
+    </div>
+
+    <h3>Updating a Submitted Report — Reopen Process</h3>
+    <div class="process-grid">
+      <div class="process-card red">
+        <h4>Dealer Process</h4>
+        <ol>
+          <li>Contact GWM and request your daily report to be reopened.</li>
+          <li>Wait for confirmation that your dealer has been unlocked.</li>
+          <li>Open the input form again.</li>
+          <li>Your previous submitted data will be pre-filled.</li>
+          <li>Make the required changes and press <strong>Submit Daily Report</strong>.</li>
+        </ol>
+      </div>
+      <div class="process-card green">
+        <h4>GWM / OEM Process</h4>
+        <ol>
+          <li>Open <strong>dashboard.html</strong>.</li>
+          <li>Go to the Dealer Compliance table for the selected reporting date.</li>
+          <li>Find the dealer and click <strong>Reopen Submission</strong>.</li>
+          <li>The dealer can now reopen the form, see their existing data, edit and resubmit.</li>
+          <li>Once resubmitted, the backend locks that dealer again for the same date.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="info-box warn">
+      <strong>Important:</strong> Without an OEM dashboard reopen, the backend rejects duplicate dealer/date submissions. This protects the dashboard and Google Sheet from accidental double sends.
+    </div>
+
+    <h3>Daily Reporting Rules</h3>
+    <div class="rule-list">
+      <div class="rule-item"><strong>✓ Enter today only</strong><br>Do not re-enter previous days or future expected activity.</div>
+      <div class="rule-item"><strong>✓ Submit once per day</strong><br>Submit when the report is final. Ask GWM to reopen if a correction is required.</div>
+      <div class="rule-item"><strong>✓ Zero activity is valid</strong><br>If nothing happened, submit a true zero where required instead of skipping the day.</div>
+      <div class="rule-item"><strong>✓ Forecast is monthly</strong><br>Only update forecast if the month outlook has changed. Do not change it daily by default.</div>
+      <div class="rule-item"><strong>✗ Do not double count</strong><br>Use Quick Activity Entry or the grid, but make sure the final grid total reflects the true daily result.</div>
+      <div class="rule-item"><strong>✗ Do not submit blanks as activity</strong><br>Blank means not entered. A typed 0 means a deliberate zero.</div>
+    </div>
+
+    <h3>Using the Form Throughout the Day</h3>
+    <div class="info-box tip">
+      You can leave the form open during the day if that suits your process.<br><br>
+      ✓ Entries autosave locally in the browser while you work.<br>
+      ✓ You can add activity as it happens using Quick Activity Entry.<br>
+      ✓ The grid and totals update live.<br>
+      ✓ Submit once when the daily report is ready.<br><br>
+      If you change dealer selection mid-entry, make sure the form has cleared or loaded the correct dealer data before continuing.
     </div>
 
     <h3>Bookmarking to Your Home Screen</h3>
@@ -523,6 +607,28 @@
         <div class="link-card-url">https://gwm-anz.github.io/gwm-sales-reporting/dashboard.html</div>
       </div>
     </a>
+
+    <h3>OEM Daily Process</h3>
+    <div class="process-grid">
+      <div class="process-card green">
+        <h4>Morning Control</h4>
+        <ol>
+          <li>Open the dashboard and confirm the selected reporting date.</li>
+          <li>Review submissions before the 10:00 AM cut-off.</li>
+          <li>Check missing dealers and late submissions.</li>
+          <li>Use <strong>Reopen Submission</strong> only when a dealer needs to correct the same-day report.</li>
+        </ol>
+      </div>
+      <div class="process-card red">
+        <h4>Performance Read</h4>
+        <ol>
+          <li>Review model momentum and funnel conversion.</li>
+          <li>Identify models with enquiry growth but low test-drive or order conversion.</li>
+          <li>Review dealer/model performance, not just total volume.</li>
+          <li>Use the insight layer to guide coaching, campaign focus and HQ reporting.</li>
+        </ol>
+      </div>
+    </div>
 
     <h3>KPI Cards</h3>
     <p>The dashboard now contains two KPI layers for the selected date: the primary operating KPIs and the funnel performance KPIs.</p>
@@ -855,7 +961,17 @@ Total Enquiries = SUM(submissions[enquiry])</pre>
       </div>
     </div>
 
-    <h3>Form Issues</h3>
+    
+    <h3>Dealer submitted, but needs to change the report</h3>
+    <div class="info-box note">
+      Use the dashboard reopen function. Find the dealer in the Dealer Compliance table for the correct reporting date, click <strong>Reopen Submission</strong>, then ask the dealer to open the input form again. Their previous data should be restored. Once they resubmit, the existing dealer/date rows are overwritten and the submission locks again.
+    </div>
+
+    <h3>Dealer says they cannot see their code in the dropdown</h3>
+    <div class="info-box note">
+      This usually means the dealer has already submitted for the selected reporting day. If an edit is required, reopen the submission from the dashboard. If it is after 7:00 AM on a new day and the dealer still cannot submit, refresh the page and check the reporting date.
+    </div>
+<h3>Form Issues</h3>
     <table class="schema-table">
       <thead><tr><th>Problem</th><th>Solution</th></tr></thead>
       <tbody>
