@@ -92,12 +92,12 @@ function nowTimestamp() {
 }
 
 /* Reporting day helper
-   Daily submission window resets at 7:00am local time.
-   Before 7:00am, the input form still belongs to the previous report day.
+   Dealers enter YESTERDAY'S activity each morning.
+   Therefore the active report date is always yesterday's calendar date.
 */
 function reportingDateISO() {
   const d = new Date();
-  if (d.getHours() < 7) d.setDate(d.getDate() - 1);
+  d.setDate(d.getDate() - 1);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
@@ -192,11 +192,15 @@ async function postControl(payload) {
 async function fetchRows(params = {}) {
   const url = GWM_CONFIG.scriptUrl;
   if (!url) return null;
-  const qs = new URLSearchParams(params).toString();
-  const res = await fetch(`${url}?${qs}`);
+
+  // Prevent stale Apps Script / browser cached responses after a missed-day submission.
+  const requestParams = { ...params, _cacheBust: Date.now() };
+  const qs = new URLSearchParams(requestParams).toString();
+  const res = await fetch(`${url}?${qs}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
+
 
 /* ── Demo data generator (used when no scriptUrl set) ───── */
 function generateDemoData(dateISO) {

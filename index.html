@@ -1205,7 +1205,17 @@ function handleSuccess(rows) {
   // Keep last 2000 rows
   if (history.length > 2000) history.splice(0, history.length - 2000);
   localStorage.setItem('gwm_submissions', JSON.stringify(history));
-  refreshAvailableDealers();
+
+  // Immediately mark this date as submitted in the current browser state.
+  // This prevents the same missed date from continuing to display while Apps Script catches up.
+  selectedDealerSubmittedDates.add(date);
+  if (forcedMissingReportDate === date) {
+    forcedMissingReportDate = null;
+    applyForcedMissingDate(null);
+  }
+
+  // Refresh in the background with cache-busted GET calls.
+  setTimeout(() => refreshAvailableDealers(), 1200);
 
   document.getElementById('sales-form').classList.add('hidden');
   const totEnq  = rows.reduce((a,r) => a + safeInt(r.enquiry), 0);
