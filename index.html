@@ -635,6 +635,8 @@ let gridData = {};   // { modelName: { enquiry:0, test_drives:0, ... } }
 let submittedDealerCodes = new Set();
 let unlockedDealerCodes = new Set();
 let existingSubmissionCache = {};
+let eligibleDealerCodes = new Set(DEALERS.map(d => d.code));
+let dealerForcedMissingDates = {};
 let quickActivityLog = [];
 let activeReportDate = reportingDateISO();
 let forcedMissingReportDate = null;
@@ -682,36 +684,56 @@ function populateDealerDropdown() {
   sel.innerHTML = '<option value="">— Select dealer —</option>';
 
   DEALERS.forEach(d => {
+    const isEligible = eligibleDealerCodes.has(d.code) || unlockedDealerCodes.has(d.code);
+    if (!isEligible) return;
+
     const opt = document.createElement('option');
     opt.value = d.code;
-    opt.textContent = `${d.code} – ${d.name}`;
+    const missedDate = dealerForcedMissingDates[d.code];
+    opt.textContent = missedDate
+      ? `${d.code} – ${d.name}  ⚠ missed ${formatDate(missedDate)}`
+      : `${d.code} – ${d.name}`;
     sel.appendChild(opt);
   });
 
-  if (current && Array.from(sel.options).some(o => o.value === current)) sel.value = current;
+  if (current && Array.from(sel.options).some(o => o.value === current)) {
+    sel.value = current;
+  } else {
+    sel.value = '';
+    selectedDealerSubmittedDates = new Set();
+    applyForcedMissingDate(null);
+  }
 }
 
 async function refreshAvailableDealers() {
   const reportDate = reportingDateISO();
+  let allRows = [];
   let rows = [];
   let unlocked = [];
 
   try {
     if (GWM_CONFIG.scriptUrl) {
-      const data = await fetchRows({ date: reportDate, include_controls: '1' });
-      rows = Array.isArray(data) ? data : (data.rows || []);
-      unlocked = Array.isArray(data?.unlockedDealerCodes) ? data.unlockedDealerCodes : [];
+      const allData = await fetchRows({});
+      allRows = Array.isArray(allData) ? allData : (allData.rows || []);
+
+      const controlData = await fetchRows({ date: reportDate, include_controls: '1' });
+      unlocked = Array.isArray(controlData?.unlockedDealerCodes) ? controlData.unlockedDealerCodes : [];
+      rows = allRows.filter(r => String(r.report_date || '').slice(0, 10) === reportDate);
     } else {
-      rows = JSON.parse(localStorage.getItem('gwm_submissions') || '[]').filter(r => r.report_date === reportDate);
+      allRows = JSON.parse(localStorage.getItem('gwm_submissions') || '[]');
+      rows = allRows.filter(r => r.report_date === reportDate);
       unlocked = getLocalUnlockedDealers(reportDate);
     }
   } catch (err) {
     console.warn('Dealer availability check failed:', err);
-    rows = JSON.parse(localStorage.getItem('gwm_submissions') || '[]').filter(r => r.report_date === reportDate);
+    allRows = JSON.parse(localStorage.getItem('gwm_submissions') || '[]');
+    rows = allRows.filter(r => r.report_date === reportDate);
     unlocked = getLocalUnlockedDealers(reportDate);
   }
 
   submittedDealerCodes = new Set(rows.map(r => String(r.dealer_code || '').trim()).filter(Boolean));
+  unlockedDealerCodes = new Set(unlocked.map(x => String(x || '').trim()).filter(Boolean));
+
   existingSubmissionCache = {};
   rows.forEach(r => {
     const code = String(r.dealer_code || '').trim();
@@ -719,7 +741,21 @@ async function refreshAvailableDealers() {
     if (!existingSubmissionCache[code]) existingSubmissionCache[code] = [];
     existingSubmissionCache[code].push(r);
   });
-  unlockedDealerCodes = new Set(unlocked.map(x => String(x || '').trim()).filter(Boolean));
+
+  dealerForcedMissingDates = {};
+  eligibleDealerCodes = new Set();
+  DEALERS.forEach(d => {
+    const dealerRows = allRows.filter(r => String(r.dealer_code || '').trim() === d.code);
+    const missingDate = findForcedMissingDateForDealer(dealerRows, reportDate);
+    if (missingDate) dealerForcedMissingDates[d.code] = missingDate;
+
+    const hasSubmittedCurrentReport = submittedDealerCodes.has(d.code);
+    const isUnlocked = unlockedDealerCodes.has(d.code);
+    if (missingDate || !hasSubmittedCurrentReport || isUnlocked) {
+      eligibleDealerCodes.add(d.code);
+    }
+  });
+
   populateDealerDropdown();
   updateSubmitPreview();
 }
@@ -771,7 +807,6 @@ function findForcedMissingDateForDealer(rows, currentReportDate) {
   if (!dates.length) return null;
 
   const submitted = new Set(dates);
-  if (submitted.has(currentReportDate)) return null;
 
   const latestBeforeCurrent = dates.filter(d => isoCompare(d, currentReportDate) < 0).pop();
   if (!latestBeforeCurrent) return null;
@@ -1170,7 +1205,7 @@ function handleSuccess(rows) {
   // Keep last 2000 rows
   if (history.length > 2000) history.splice(0, history.length - 2000);
   localStorage.setItem('gwm_submissions', JSON.stringify(history));
-  populateDealerDropdown();
+  refreshAvailableDealers();
 
   document.getElementById('sales-form').classList.add('hidden');
   const totEnq  = rows.reduce((a,r) => a + safeInt(r.enquiry), 0);
