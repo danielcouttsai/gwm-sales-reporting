@@ -1013,7 +1013,7 @@ async function loadData() {
       // Live mode — fetch from Apps Script
       document.getElementById('demo-ribbon').style.display = 'none';
       const data = await fetchRows({});
-      allRows = Array.isArray(data) ? data : (data.rows || []);
+      allRows = normaliseRows(Array.isArray(data) ? data : (data.rows || []));
     } else {
       // Demo mode — generate sample data
       document.getElementById('demo-ribbon').style.display = 'flex';
@@ -1026,13 +1026,14 @@ async function loadData() {
       // Use local submissions for any matching dealer/date combination; fill rest with demo history
       const localDealerDates = new Set(localHistory.map(r => `${r.report_date}|${r.dealer_code}`));
       const demoFiltered = demoRows.filter(r => !localDealerDates.has(`${r.report_date}|${r.dealer_code}`));
-      allRows = [...localHistory, ...demoFiltered];
+      allRows = normaliseRows([...localHistory, ...demoFiltered]);
     }
   } catch (err) {
     console.error('Load error:', err);
     showToast('Failed to load data: ' + err.message, 'error');
     allRows = [];
     for (let i = 45; i >= 0; i--) { allRows.push(...generateDemoData(isoShift(dateFilter, -i))); }
+    allRows = normaliseRows(allRows);
   }
 
   applyFilters();
@@ -1167,13 +1168,44 @@ function set(id, val) {
   if (el) el.textContent = val;
 }
 
+function normaliseRow(r) {
+  const row = { ...(r || {}) };
+
+  // Apps Script / imported sheet compatibility:
+  // Older test imports use fleet_5_plus. Dashboard calculations use fleet.
+  if ((row.fleet === undefined || row.fleet === '') && row.fleet_5_plus !== undefined) {
+    row.fleet = row.fleet_5_plus;
+  }
+
+  // Google Sheets sometimes returns dates as Date objects. Keep dashboard filters ISO-safe.
+  if (row.report_date instanceof Date) row.report_date = row.report_date.toISOString().slice(0, 10);
+  row.report_date = String(row.report_date || '').slice(0, 10);
+
+  // Normalise boolean-ish late flag.
+  row.is_late = row.is_late === true || row.is_late === 'TRUE' || row.is_late === 1 || row.is_late === '1';
+
+  return row;
+}
+
+function normaliseRows(rows) {
+  return (rows || []).map(normaliseRow);
+}
+
 function isCompleteRow(r) {
   if (!r) return false;
-  return r.is_complete_submission === true || r.is_complete_submission === 'TRUE' || r.is_complete_submission === 1 || r.is_complete_submission === '1';
+
+  // Backward compatibility: manually imported/test rows may not contain this newer field.
+  // If the field is missing, treat the row as complete so historical/imported data still feeds the dashboard.
+  if (r.is_complete_submission === undefined || r.is_complete_submission === null || r.is_complete_submission === '') return true;
+
+  return r.is_complete_submission === true ||
+         r.is_complete_submission === 'TRUE' ||
+         r.is_complete_submission === 1 ||
+         r.is_complete_submission === '1';
 }
 
 function completeAnalysisRows(rows) {
-  return (rows || []).filter(isCompleteRow);
+  return normaliseRows(rows).filter(isCompleteRow);
 }
 
 /* ── Compliance table ────────────────────────────────────── */

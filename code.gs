@@ -11,7 +11,7 @@
 // ============================================================
 
 // ── Configuration ────────────────────────────────────────
-const SHEET_ID   = 'YOUR_GOOGLE_SHEET_ID_HERE';   // ← Replace with your Sheet ID
+const SHEET_ID   = '1RgHHcIgq_onYKgh9PC6IqsFXxTWbgM_GAVxJSV0NPrY';   // Connected Google Sheet ID
 const SHEET_NAME = 'submissions';                  // Tab name in your Google Sheet
 const CONTROL_SHEET_NAME = 'submission_controls';   // OEM reopen / lock control tab
 const ACCESS_CODE = '';                            // Optional: set a shared access code e.g. 'gwm2025'
