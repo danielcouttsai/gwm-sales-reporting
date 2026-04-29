@@ -17,6 +17,13 @@ const CONTROL_SHEET_NAME = 'submission_controls';   // OEM reopen / lock control
 const ACCESS_CODE = '';                            // Optional: set a shared access code e.g. 'gwm2025'
                                                    // Leave empty to allow all requests
 
+// First date the system should enforce from. Set this to your go-live date.
+// Leave blank to enforce from the first day of the current month.
+const REPORTING_START_DATE = '';
+
+// Sunday reporting is opt-in. Add dealer codes that trade Sundays and need Sunday reporting.
+const SUNDAY_TRADING_DEALERS = [];
+
 // ── Column order (must match sheet header row exactly) ────
 const COLUMNS = [
   'submitted_at',
@@ -43,6 +50,61 @@ const COLUMNS = [
 
 const DAILY_VALUE_COLUMNS = ['enquiry','test_drives','new_sold','fleet_5_plus','demo_sold'];
 const MIN_EXPECTED_MODEL_ROWS = 19;
+
+function serverTodayISO() {
+  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+function serverReportingDateISO() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+function addDaysISO(iso, days) {
+  const parts = String(iso || '').split('-').map(Number);
+  const d = new Date(parts[0], parts[1] - 1, parts[2]);
+  d.setDate(d.getDate() + days);
+  return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+function isSundayReportDate(iso) {
+  const parts = String(iso || '').split('-').map(Number);
+  return new Date(parts[0], parts[1] - 1, parts[2]).getDay() === 0;
+}
+
+function isSundayRequiredForDealerServer(dealerCode) {
+  return SUNDAY_TRADING_DEALERS.map(String).indexOf(String(dealerCode || '').trim()) >= 0;
+}
+
+function reportingStartDateServer() {
+  if (REPORTING_START_DATE) return REPORTING_START_DATE;
+  const d = new Date();
+  d.setDate(1);
+  return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+function requiredReportDatesForDealer(dealerCode, startISO, endISO) {
+  const dates = [];
+  let cur = startISO || reportingStartDateServer();
+  const end = endISO || serverReportingDateISO();
+  while (cur <= end) {
+    if (!isSundayReportDate(cur) || isSundayRequiredForDealerServer(dealerCode)) dates.push(cur);
+    cur = addDaysISO(cur, 1);
+  }
+  return dates;
+}
+
+function firstMissingDateForDealer(dealerCode, submittedDates, startISO, endISO) {
+  const set = {};
+  (submittedDates || []).forEach(d => set[String(d)] = true);
+  const required = requiredReportDatesForDealer(dealerCode, startISO, endISO);
+  for (let i = 0; i < required.length; i++) {
+    if (!set[required[i]]) return required[i];
+  }
+  return '';
+}
+
 // ── GET handler – returns rows for dashboard ──────────────
 function doGet(e) {
   const params = e.parameter || {};
@@ -72,8 +134,10 @@ function doGet(e) {
       const rowReportDate = normaliseSheetDate(row['report_date']);
       row['report_date'] = rowReportDate;
 
-      // Filter by date if provided
+      // Filter by date/range if provided
       if (params.date && rowReportDate !== String(params.date).trim()) continue;
+      if (params.start && rowReportDate < String(params.start).trim()) continue;
+      if (params.end && rowReportDate > String(params.end).trim()) continue;
 
       // Filter by dealer if provided
       if (params.dealer && String(row['dealer_code']).trim() !== String(params.dealer).trim()) continue;
@@ -86,8 +150,12 @@ function doGet(e) {
     }
 
     const payload = { rows };
-    if (params.include_controls === '1' && params.date) {
-      payload.unlockedDealerCodes = getUnlockedDealerCodes(params.date);
+    if (params.include_controls === '1') {
+      if (params.date) {
+        payload.unlockedDealerCodes = getUnlockedDealerCodes(params.date);
+      } else {
+        payload.unlockedByDate = getUnlockedByDateMap(params.start || reportingStartDateServer(), params.end || serverReportingDateISO());
+      }
     }
     return jsonResponse(payload);
   } catch (err) {
@@ -126,9 +194,11 @@ function doPost(e) {
     const dealerCode = String(rows[0].dealer_code || '').trim();
     const reportDate = normaliseSheetDate(rows[0].report_date);
     validateSubmissionRows(rows, dealerCode, reportDate);
+    validateRetrospectiveReportDate(reportDate);
 
     const alreadySubmitted = hasExistingSubmissionRows(sheet, dealerCode, reportDate);
     const isUnlocked = isSubmissionUnlocked(dealerCode, reportDate);
+    validateSubmissionSequence(sheet, dealerCode, reportDate, isUnlocked);
     if (alreadySubmitted && !isUnlocked) {
       return jsonResponse({
         success: false,
@@ -172,7 +242,9 @@ function doPost(e) {
     return jsonResponse({
       success: true,
       appended: appended.length,
-      message: `${appended.length} rows written for dealer ${rows[0].dealer_code}`,
+      savedDate: reportDate,
+      dealer_code: dealerCode,
+      message: `${appended.length} rows written for dealer ${dealerCode}`,
     });
 
   } catch (err) {
@@ -251,6 +323,38 @@ function styleHeader(sheet) {
   sheet.setColumnWidth(13, 160); // model_bucket
 }
 
+
+function validateRetrospectiveReportDate(reportDate) {
+  if (!reportDate) throw new Error('report_date is required');
+  if (String(reportDate).trim() >= serverTodayISO()) {
+    throw new Error("Reporting is retrospective only. Today's date or a future date cannot be submitted.");
+  }
+}
+
+function validateSubmissionSequence(sheet, dealerCode, reportDate, isUnlocked) {
+  if (isUnlocked) return;
+  const submittedDates = getSubmittedDatesForDealer(sheet, dealerCode);
+  const expected = firstMissingDateForDealer(dealerCode, submittedDates, reportingStartDateServer(), serverReportingDateISO());
+  if (expected && expected !== reportDate) {
+    throw new Error('Oldest incomplete reporting date must be completed first. Required date: ' + expected);
+  }
+}
+
+function getSubmittedDatesForDealer(sheet, dealerCode) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return [];
+  const data = sheet.getRange(2, 1, lastRow - 1, COLUMNS.length).getValues();
+  const dealerCol = COLUMNS.indexOf('dealer_code');
+  const dateCol = COLUMNS.indexOf('report_date');
+  const set = {};
+  data.forEach(row => {
+    if (String(row[dealerCol] || '').trim() === String(dealerCode).trim()) {
+      const d = normaliseSheetDate(row[dateCol]);
+      if (d) set[d] = true;
+    }
+  });
+  return Object.keys(set).sort();
+}
 
 function validateSubmissionRows(rows, dealerCode, reportDate) {
   if (!dealerCode) throw new Error('dealer_code is required');
@@ -414,6 +518,28 @@ function getUnlockedDealerCodes(reportDate) {
     if (rowDealer && rowDate === String(reportDate).trim() && status === 'UNLOCKED') out.push(rowDealer);
   });
   return Array.from(new Set(out));
+}
+
+function getUnlockedByDateMap(startDate, endDate) {
+  const sheet = getControlSheet();
+  const lastRow = sheet.getLastRow();
+  const out = {};
+  if (lastRow <= 1) return out;
+
+  const data = sheet.getRange(2, 1, lastRow - 1, 5).getValues();
+  data.forEach(row => {
+    const rowDealer = String(row[0] || '').trim();
+    const rowDate = normaliseSheetDate(row[1]);
+    const status = String(row[2] || '').trim().toUpperCase();
+    if (!rowDealer || status !== 'UNLOCKED') return;
+    if (startDate && rowDate < String(startDate).trim()) return;
+    if (endDate && rowDate > String(endDate).trim()) return;
+    if (!out[rowDate]) out[rowDate] = [];
+    out[rowDate].push(rowDealer);
+  });
+
+  Object.keys(out).forEach(date => { out[date] = Array.from(new Set(out[date])); });
+  return out;
 }
 
 function normaliseSheetDate(value) {

@@ -12,6 +12,14 @@ const GWM_CONFIG = {
   scriptUrl: 'https://script.google.com/macros/s/AKfycbxh7-IUcOe6tGrkCqK1sYrzb4LBhPoiwwePqkEd_sab2vAUGihrEGIer2Gm5VlUFH14sA/exec',
   region: 'Southern Region',
   cutoffHour: 10,   // Submissions after 10:00am are flagged late
+
+  // First date the system should enforce from. Set this to your go-live date.
+  // Leave blank to enforce from the first day of the current month.
+  reportingStartDate: '',
+
+  // Sunday reporting is opt-in by dealer. Most dealers will not be forced to report Sundays.
+  // Add dealer codes here only if they trade Sundays and need Sunday activity captured.
+  sundayTradingDealers: [],
 };
 
 /* ── Dealer list ─────────────────────────────────────────── */
@@ -92,13 +100,59 @@ function nowTimestamp() {
 }
 
 /* Reporting day helper
-   Daily submission window resets at 7:00am local time.
-   Before 7:00am, the input form still belongs to the previous report day.
+   Reporting is always retrospective: today's input is for yesterday's dealer activity.
+   Do not use a time-based rollover. The day has to be complete before it is reported.
 */
 function reportingDateISO() {
   const d = new Date();
-  if (d.getHours() < 7) d.setDate(d.getDate() - 1);
+  d.setDate(d.getDate() - 1);
+  return toISODate(d);
+}
+
+function toISODate(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function parseISODate(iso) {
+  const [y, m, d] = String(iso || '').split('-').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+
+function isoOffset(iso, days) {
+  const d = parseISODate(iso);
+  d.setDate(d.getDate() + days);
+  return toISODate(d);
+}
+
+function isSundayISO(iso) {
+  return parseISODate(iso).getDay() === 0;
+}
+
+function isSundayRequiredForDealer(dealerCode) {
+  return (GWM_CONFIG.sundayTradingDealers || []).map(String).includes(String(dealerCode || '').trim());
+}
+
+function reportingStartDateISO() {
+  if (GWM_CONFIG.reportingStartDate) return GWM_CONFIG.reportingStartDate;
+  const d = new Date();
+  d.setDate(1);
+  return toISODate(d);
+}
+
+function buildRequiredReportDates(dealerCode, startISO, endISO) {
+  const dates = [];
+  let cur = startISO || reportingStartDateISO();
+  const end = endISO || reportingDateISO();
+  while (cur <= end) {
+    if (!isSundayISO(cur) || isSundayRequiredForDealer(dealerCode)) dates.push(cur);
+    cur = isoOffset(cur, 1);
+  }
+  return dates;
+}
+
+function firstMissingReportDate(dealerCode, submittedDates, startISO, endISO) {
+  const submitted = new Set((submittedDates || []).map(String));
+  return buildRequiredReportDates(dealerCode, startISO, endISO).find(d => !submitted.has(d)) || '';
 }
 
 function monthKeyFromISO(iso) {
@@ -145,6 +199,22 @@ function showToast(msg, type = 'default', duration = 3500) {
   toast._timer = setTimeout(() => toast.classList.remove('show'), duration);
 }
 
+/* ── Submission confirmation helper ───────────────────── */
+async function waitForSubmissionConfirmation(dealerCode, reportDate, attempts = 8) {
+  for (let i = 0; i < attempts; i++) {
+    await new Promise(r => setTimeout(r, i < 2 ? 900 : 1400));
+    try {
+      const state = await fetchRows({ date: reportDate, dealer: dealerCode, include_controls: '1' });
+      const rows = Array.isArray(state) ? state : (state?.rows || []);
+      const unlocked = Array.isArray(state?.unlockedDealerCodes) ? state.unlockedDealerCodes.map(x => String(x).trim()) : [];
+      if (rows.length >= MODEL_BUCKETS.length && !unlocked.includes(String(dealerCode).trim())) return rows;
+    } catch (err) {
+      console.warn('Submission confirmation check failed:', err);
+    }
+  }
+  throw new Error('Submission was sent, but the backend did not confirm the saved rows. Refresh and check the dashboard before submitting again.');
+}
+
 /* ── API call (POST to Apps Script) ─────────────────────── */
 async function postRows(rows) {
   const url = GWM_CONFIG.scriptUrl;
@@ -157,6 +227,9 @@ async function postRows(rows) {
   const dealerCode = String(first.dealer_code || '').trim();
   const reportDate = String(first.report_date || '').trim();
   if (dealerCode && reportDate) {
+    if (reportDate >= todayISO()) {
+      throw new Error("Cannot submit today's date. Reporting is always for completed prior days only.");
+    }
     const state = await fetchRows({ date: reportDate, dealer: dealerCode, include_controls: '1' });
     const existingRows = Array.isArray(state) ? state : (state?.rows || []);
     const unlocked = Array.isArray(state?.unlockedDealerCodes) ? state.unlockedDealerCodes.map(x => String(x).trim()) : [];
@@ -171,7 +244,10 @@ async function postRows(rows) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ rows }),
   });
-  return { ok: true };
+
+  // no-cors POSTs are opaque. Confirm via readable GET before the UI marks success.
+  await waitForSubmissionConfirmation(dealerCode, reportDate);
+  return { ok: true, confirmed: true };
 }
 
 /* ── API control call (POST to Apps Script) ─────────────── */

@@ -960,7 +960,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('cfg-url').value = savedUrl;
   }
 
-  // Set default filter date to today
+  // Set default filter date to the active reporting date (yesterday)
   document.getElementById('f-date').value = reportingDateISO();
 
   // Populate filter dropdowns
@@ -1229,7 +1229,7 @@ function renderComplianceTable() {
 async function unlockDealerSubmission(dealerCode, reportDate) {
   const dealer = DEALERS.find(d => d.code === dealerCode);
   const label = dealer ? `${dealer.code} – ${dealer.name}` : dealerCode;
-  if (!confirm(`Reopen today's submission for ${label}?\\n\\nThe dealer will be able to open the input form, see the submitted data, update it and resubmit. Their resubmission will overwrite the current rows.`)) return;
+  if (!confirm(`Reopen ${formatDate(reportDate)} submission for ${label}?\\n\\nThe dealer will be able to open the input form, see the submitted data, update it and resubmit. Their resubmission will overwrite the current rows.`)) return;
 
   try {
     if (GWM_CONFIG.scriptUrl) {

@@ -398,6 +398,7 @@
     .mobile-summary-bar { display:none; }
     .grid-toggle-mobile { display:none; }
     .unlock-banner { display:none; background:#FFF3E0; border:1px solid #FFCC80; border-left:3px solid #C84B00; color:#7B4800; padding:10px 14px; font-size:12px; font-weight:700; margin-bottom:14px; }
+    .missing-banner { display:none; background:#FFEBEE; border:1px solid #FFCDD2; border-left:3px solid #C41230; color:#7f0016; padding:12px 14px; font-size:12px; font-weight:800; margin-bottom:14px; line-height:1.5; }
     .submitted-banner { display:none; background:#E8F5E9; border:1px solid #A5D6A7; border-left:3px solid #2E7D32; color:#1B5E20; padding:10px 14px; font-size:12px; font-weight:700; margin-bottom:14px; }
 </style>
 </head>
@@ -448,8 +449,9 @@
 
   <!-- ── Form ───────────────────────────────────────────── -->
   <form id="sales-form" novalidate>
-    <div class="unlock-banner" id="unlock-banner">OEM has reopened this dealer's submission for today. Existing data has been restored, update and resubmit to overwrite the prior version.</div>
-    <div class="submitted-banner" id="submitted-banner">✓ Submitted for today. Contact OEM to reopen if changes are required.</div>
+    <div class="missing-banner" id="missing-banner"></div>
+    <div class="unlock-banner" id="unlock-banner">OEM has reopened this dealer/date. Existing data has been restored, update and resubmit to overwrite the prior version.</div>
+    <div class="submitted-banner" id="submitted-banner">✓ Submitted. Contact OEM to reopen if changes are required.</div>
 
     <!-- Dealer details card -->
     <div class="card">
@@ -632,6 +634,8 @@ let gridData = {};   // { modelName: { enquiry:0, test_drives:0, ... } }
 let submittedDealerCodes = new Set();
 let unlockedDealerCodes = new Set();
 let existingSubmissionCache = {};
+let dealerRequiredDateMap = {};
+let unlockedSubmissionKeys = new Set();
 let quickActivityLog = [];
 let activeReportDate = reportingDateISO();
 let draftSaveTimer = null;
@@ -681,11 +685,13 @@ function populateDealerDropdown() {
   sel.innerHTML = '<option value="">— Select dealer —</option>';
 
   DEALERS
-    .filter(d => !submittedDealerCodes.has(d.code) || unlockedDealerCodes.has(d.code))
+    .filter(d => dealerRequiredDateMap[d.code])
     .forEach(d => {
       const opt = document.createElement('option');
       opt.value = d.code;
-      opt.textContent = `${d.code} – ${d.name}`;
+      const requiredDate = dealerRequiredDateMap[d.code];
+      const reopened = unlockedSubmissionKeys.has(`${d.code}|${requiredDate}`);
+      opt.textContent = `${d.code} – ${d.name} · ${reopened ? 'REOPENED' : 'Required'} ${formatDate(requiredDate)}`;
       sel.appendChild(opt);
     });
 
@@ -693,36 +699,79 @@ function populateDealerDropdown() {
 }
 
 async function refreshAvailableDealers() {
-  const reportDate = reportingDateISO();
+  const currentReportDate = reportingDateISO();
+  const startDate = reportingStartDateISO();
   let rows = [];
-  let unlocked = [];
+  let unlockedByDate = {};
 
   try {
     if (GWM_CONFIG.scriptUrl) {
-      const data = await fetchRows({ date: reportDate, include_controls: '1' });
+      const data = await fetchRows({ start: startDate, end: currentReportDate, include_controls: '1' });
       rows = Array.isArray(data) ? data : (data.rows || []);
-      unlocked = Array.isArray(data?.unlockedDealerCodes) ? data.unlockedDealerCodes : [];
+      unlockedByDate = data?.unlockedByDate || {};
     } else {
-      rows = JSON.parse(localStorage.getItem('gwm_submissions') || '[]').filter(r => r.report_date === reportDate);
-      unlocked = getLocalUnlockedDealers(reportDate);
+      rows = JSON.parse(localStorage.getItem('gwm_submissions') || '[]')
+        .filter(r => r.report_date >= startDate && r.report_date <= currentReportDate);
+      unlockedByDate = getLocalUnlockedByDate(startDate, currentReportDate);
     }
   } catch (err) {
     console.warn('Dealer availability check failed:', err);
-    rows = JSON.parse(localStorage.getItem('gwm_submissions') || '[]').filter(r => r.report_date === reportDate);
-    unlocked = getLocalUnlockedDealers(reportDate);
+    rows = JSON.parse(localStorage.getItem('gwm_submissions') || '[]')
+      .filter(r => r.report_date >= startDate && r.report_date <= currentReportDate);
+    unlockedByDate = getLocalUnlockedByDate(startDate, currentReportDate);
   }
 
-  submittedDealerCodes = new Set(rows.map(r => String(r.dealer_code || '').trim()).filter(Boolean));
+  const submittedByDealer = {};
   existingSubmissionCache = {};
   rows.forEach(r => {
     const code = String(r.dealer_code || '').trim();
-    if (!code) return;
-    if (!existingSubmissionCache[code]) existingSubmissionCache[code] = [];
-    existingSubmissionCache[code].push(r);
+    const date = String(r.report_date || '').trim();
+    if (!code || !date) return;
+    if (!submittedByDealer[code]) submittedByDealer[code] = new Set();
+    submittedByDealer[code].add(date);
+    const key = `${code}|${date}`;
+    if (!existingSubmissionCache[key]) existingSubmissionCache[key] = [];
+    existingSubmissionCache[key].push(r);
   });
-  unlockedDealerCodes = new Set(unlocked.map(x => String(x || '').trim()).filter(Boolean));
+
+  unlockedSubmissionKeys = new Set();
+  Object.keys(unlockedByDate || {}).forEach(date => {
+    (unlockedByDate[date] || []).forEach(code => unlockedSubmissionKeys.add(`${String(code).trim()}|${date}`));
+  });
+
+  dealerRequiredDateMap = {};
+  DEALERS.forEach(d => {
+    const submittedDates = submittedByDealer[d.code] ? Array.from(submittedByDealer[d.code]) : [];
+    const unlockedDates = Array.from(unlockedSubmissionKeys)
+      .filter(k => k.startsWith(d.code + '|'))
+      .map(k => k.split('|')[1])
+      .sort();
+
+    // Reopened submissions take priority so the dealer can correct and resubmit.
+    if (unlockedDates.length) {
+      dealerRequiredDateMap[d.code] = unlockedDates[0];
+      return;
+    }
+
+    const missing = firstMissingReportDate(d.code, submittedDates, startDate, currentReportDate);
+    if (missing) dealerRequiredDateMap[d.code] = missing;
+  });
+
+  submittedDealerCodes = new Set(DEALERS.filter(d => !dealerRequiredDateMap[d.code]).map(d => d.code));
+  unlockedDealerCodes = new Set(Array.from(unlockedSubmissionKeys).map(k => k.split('|')[0]));
+
   populateDealerDropdown();
   updateSubmitPreview();
+}
+
+function getLocalUnlockedByDate(startDate, endDate) {
+  const out = {};
+  let cur = startDate;
+  while (cur <= endDate) {
+    out[cur] = getLocalUnlockedDealers(cur);
+    cur = isoOffset(cur, 1);
+  }
+  return out;
 }
 
 function getLocalUnlockedDealers(reportDate) {
@@ -740,7 +789,7 @@ function setLocalUnlock(dealerCode, reportDate, shouldUnlock) {
 function scheduleDealerResetRefresh() {
   const now = new Date();
   const next = new Date(now);
-  next.setHours(7, 0, 0, 0);
+  next.setHours(0, 5, 0, 0);
   if (next <= now) next.setDate(next.getDate() + 1);
   setTimeout(() => {
     setDateFields();
@@ -882,6 +931,8 @@ function prepareDealerWorkspace() {
   formOpenedAt = Date.now();
   const unlockBanner = document.getElementById('unlock-banner');
   if (unlockBanner) unlockBanner.style.display = 'none';
+  const missingBanner = document.getElementById('missing-banner');
+  if (missingBanner) missingBanner.style.display = 'none';
   setDraftStatus('Select dealer to enable draft save');
 }
 
@@ -913,7 +964,8 @@ function setDirection(val) {
 
 /* ── Date / clock ────────────────────────────────────────── */
 function setDateFields() {
-  const today = reportingDateISO();
+  const code = document.getElementById('dealer-select')?.value || '';
+  const today = dealerRequiredDateMap[code] || reportingDateISO();
   document.getElementById('report-date').value  = formatDate(today);
   document.getElementById('submit-time').value  = new Date().toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: true });
   const ctx = document.getElementById('ctx-report-date');
@@ -944,7 +996,9 @@ function updateSubmitPreview() {
   const dealer = DEALERS.find(d => d.code === code);
   document.getElementById('submit-preview-dealer').textContent =
     dealer ? `${dealer.code} – ${dealer.name}` : '—';
-  document.getElementById('submit-preview-date').textContent = formatDate(reportingDateISO());
+  document.getElementById('submit-preview-date').textContent = formatDate(dealerRequiredDateMap[code] || reportingDateISO());
+  setDateFields();
+  updateComplianceBanners();
 }
 
 /* ── Form validation ─────────────────────────────────────── */
@@ -956,10 +1010,15 @@ function validate() {
   if (!dealerEl.value) {
     errors.push('Please select a dealer.');
     dealerEl.classList.add('error');
-  } else if (submittedDealerCodes.has(dealerEl.value) && !unlockedDealerCodes.has(dealerEl.value)) {
-    errors.push('This dealer has already submitted today. It will reopen automatically from 7:00 AM tomorrow, or OEM can reopen it from the dashboard.');
+  } else if (!dealerRequiredDateMap[dealerEl.value]) {
+    errors.push('This dealer has no open reporting day. Contact GWM to reopen if changes are required.');
     dealerEl.classList.add('error');
   } else { dealerEl.classList.remove('error'); }
+
+  const reportDate = dealerRequiredDateMap[dealerEl.value];
+  if (reportDate && reportDate >= todayISO()) {
+    errors.push("Reporting is retrospective only. Today's date cannot be submitted.");
+  }
 
   if (!nameEl.value.trim()) {
     errors.push('Please enter your name in "Submitted By".');
@@ -977,7 +1036,7 @@ function buildRows() {
   const dealerCode = document.getElementById('dealer-select').value;
   const dealer     = DEALERS.find(d => d.code === dealerCode);
   const ts         = nowTimestamp();
-  const date       = reportingDateISO();
+  const date       = dealerRequiredDateMap[dealerCode] || reportingDateISO();
   const late       = isLate();
   const name       = document.getElementById('submitted-by').value.trim();
   const direction  = selectedDirection;
@@ -1063,11 +1122,11 @@ function handleSuccess(rows) {
   const submittedDealer = document.getElementById('dealer-select').value;
   submittedDealerCodes.add(submittedDealer);
   unlockedDealerCodes.delete(submittedDealer);
-  setLocalUnlock(submittedDealer, reportingDateISO(), false);
+  setLocalUnlock(submittedDealer, rows[0].report_date, false);
 
   // Save to local history (for offline dashboard demo)
   let history = JSON.parse(localStorage.getItem('gwm_submissions') || '[]');
-  const date = reportingDateISO();
+  const date = rows[0].report_date;
   history = history.filter(r => !(r.report_date === date && r.dealer_code === submittedDealer));
   rows.forEach(r => history.push(r));
   // Keep last 2000 rows
@@ -1087,7 +1146,8 @@ function handleSuccess(rows) {
 
 /* ── Forecast persistence ────────────────────────────────── */
 function forecastStorageKey(dealerCode) {
-  return `gwm_forecast_${monthKeyFromISO(reportingDateISO())}_${dealerCode}`;
+  const date = dealerRequiredDateMap[dealerCode] || reportingDateISO();
+  return `gwm_forecast_${monthKeyFromISO(date)}_${dealerCode}`;
 }
 
 function getForecastInputs() {
@@ -1140,7 +1200,7 @@ async function loadForecastForSelectedDealer() {
     if (GWM_CONFIG.scriptUrl) {
       const data = await fetchRows({ dealer: dealerCode });
       const rows = Array.isArray(data) ? data : (data.rows || []);
-      const monthKey = monthKeyFromISO(reportingDateISO());
+      const monthKey = monthKeyFromISO(dealerRequiredDateMap[dealerCode] || reportingDateISO());
       const latest = {};
       rows
         .filter(r => String(r.report_date || '').slice(0, 7) === monthKey)
@@ -1164,12 +1224,15 @@ async function loadForecastForSelectedDealer() {
 
 function loadExistingSubmissionIfUnlocked() {
   const dealerCode = document.getElementById('dealer-select').value;
+  const reportDate = dealerRequiredDateMap[dealerCode];
   const banner = document.getElementById('unlock-banner');
-  if (!dealerCode || !unlockedDealerCodes.has(dealerCode)) {
+  const isUnlocked = Boolean(dealerCode && reportDate && unlockedSubmissionKeys.has(`${dealerCode}|${reportDate}`));
+  if (!dealerCode || !reportDate || !isUnlocked) {
     if (banner) banner.style.display = 'none';
+    updateComplianceBanners();
     return Promise.resolve(false);
   }
-  const rows = existingSubmissionCache[dealerCode] || [];
+  const rows = existingSubmissionCache[`${dealerCode}|${reportDate}`] || [];
   if (banner) banner.style.display = 'block';
   if (!rows.length) return Promise.resolve(true);
   rows.forEach(r => {
@@ -1190,8 +1253,28 @@ function loadExistingSubmissionIfUnlocked() {
   quickActivityLog = [];
   renderActivityLog();
   updateQuickSummary();
+  updateComplianceBanners();
   setDraftStatus('Reopened submission restored');
   return Promise.resolve(true);
+}
+
+function updateComplianceBanners() {
+  const dealerCode = document.getElementById('dealer-select')?.value || '';
+  const reportDate = dealerRequiredDateMap[dealerCode];
+  const missingBanner = document.getElementById('missing-banner');
+  if (!missingBanner) return;
+  if (!dealerCode || !reportDate) {
+    missingBanner.style.display = 'none';
+    return;
+  }
+  const isUnlocked = unlockedSubmissionKeys.has(`${dealerCode}|${reportDate}`);
+  const current = reportingDateISO();
+  if (!isUnlocked && reportDate < current) {
+    missingBanner.innerHTML = `⚠ Incomplete reporting detected.<br>You must complete ${formatDate(reportDate)} before ${formatDate(current)} reporting will unlock.`;
+    missingBanner.style.display = 'block';
+  } else {
+    missingBanner.style.display = 'none';
+  }
 }
 
 function initialiseMobileGridState() {
@@ -1307,12 +1390,12 @@ function updateQuickSummary() {
 function escapeHtml(value) {
   return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
-function draftStorageKey(dealerCode) { return `gwm_draft_${reportingDateISO()}_${dealerCode || 'no_dealer'}`; }
+function draftStorageKey(dealerCode) { return `gwm_draft_${dealerRequiredDateMap[dealerCode] || reportingDateISO()}_${dealerCode || 'no_dealer'}`; }
 function queueDraftSave() { clearTimeout(draftSaveTimer); draftSaveTimer = setTimeout(saveDraftForSelectedDealer, 250); }
 function saveDraftForSelectedDealer() {
   const dealerCode = document.getElementById('dealer-select').value;
   if (!dealerCode) return;
-  const payload = { report_date: reportingDateISO(), dealer_code: dealerCode, submitted_by: document.getElementById('submitted-by').value.trim(), direction: selectedDirection, gridData, quickActivityLog, manualGridEditCount, formOpenedAt, lastUpdatedAt, saved_at: new Date().toISOString() };
+  const payload = { report_date: dealerRequiredDateMap[dealerCode] || reportingDateISO(), dealer_code: dealerCode, submitted_by: document.getElementById('submitted-by').value.trim(), direction: selectedDirection, gridData, quickActivityLog, manualGridEditCount, formOpenedAt, lastUpdatedAt, saved_at: new Date().toISOString() };
   localStorage.setItem(draftStorageKey(dealerCode), JSON.stringify(payload));
   setDraftStatus('Draft saved ' + new Date().toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit', hour12:true }));
 }
