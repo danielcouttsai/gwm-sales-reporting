@@ -11,7 +11,7 @@
 // ============================================================
 
 // ── Configuration ────────────────────────────────────────
-const SHEET_ID   = '1RgHHcIgq_onYKgh9PC6IqsFXxTWbgM_GAVxJSV0NPrY';   // Connected Google Sheet ID
+const SHEET_ID   = 'YOUR_GOOGLE_SHEET_ID_HERE';   // ← Replace with your Sheet ID
 const SHEET_NAME = 'submissions';                  // Tab name in your Google Sheet
 const CONTROL_SHEET_NAME = 'submission_controls';   // OEM reopen / lock control tab
 const ACCESS_CODE = '';                            // Optional: set a shared access code e.g. 'gwm2025'
@@ -78,15 +78,9 @@ function doGet(e) {
       // Filter by dealer if provided
       if (params.dealer && String(row['dealer_code']).trim() !== String(params.dealer).trim()) continue;
 
-      // Normalise boolean fields. Preserve blank/missing completion flags for legacy imports.
-      row['is_late'] = row['is_late'] === true || row['is_late'] === 'TRUE' || row['is_late'] === 1 || row['is_late'] === '1';
-
-      const rawComplete = row['is_complete_submission'];
-      if (rawComplete === undefined || rawComplete === null || rawComplete === '') {
-        row['is_complete_submission'] = '';
-      } else {
-        row['is_complete_submission'] = rawComplete === true || rawComplete === 'TRUE' || rawComplete === 1 || rawComplete === '1';
-      }
+      // Normalise boolean fields
+      row['is_late'] = row['is_late'] === true || row['is_late'] === 'TRUE' || row['is_late'] === 1;
+      row['is_complete_submission'] = row['is_complete_submission'] === true || row['is_complete_submission'] === 'TRUE' || row['is_complete_submission'] === 1;
 
       rows.push(row);
     }
@@ -101,12 +95,9 @@ function doGet(e) {
   }
 }
 
-// ── POST handler - appends submission rows safely ──────────
+// ── POST handler – appends submission rows ────────────────
 function doPost(e) {
-  const lock = LockService.getScriptLock();
   try {
-    lock.waitLock(30000);
-
     const body = JSON.parse(e.postData.contents);
 
     // OEM dashboard control actions.
@@ -152,11 +143,10 @@ function doPost(e) {
     const existingForecasts = getExistingMonthlyForecasts(sheet, dealerCode, reportDate);
     if (alreadySubmitted) deleteExistingSubmissionRows(sheet, dealerCode, reportDate);
 
-    const isComplete = isServerCompleteSubmission(rows, dealerCode, reportDate);
     const appended = [];
-    const values = rows.map(row => {
-      appended.push(row.model_bucket);
-      return COLUMNS.map(col => {
+    rows.forEach(row => {
+      const isComplete = isServerCompleteSubmission(rows, dealerCode, reportDate);
+      const rowData = COLUMNS.map(col => {
         if (col === 'is_late') return row[col] ? 'TRUE' : 'FALSE';
         if (col === 'is_complete_submission') return isComplete ? 'TRUE' : 'FALSE';
         if (col === 'report_date') return reportDate;
@@ -173,33 +163,20 @@ function doPost(e) {
         if (col === 'last_updated_at') return row[col] || row['submitted_at'] || new Date().toISOString();
         return row[col] !== undefined ? row[col] : '';
       });
+      sheet.appendRow(rowData);
+      appended.push(row.model_bucket);
     });
-
-    // Production safety: one bulk write under lock. This avoids partial dealer/date submissions.
-    const firstTargetRow = sheet.getLastRow() + 1;
-    sheet.getRange(firstTargetRow, 1, values.length, COLUMNS.length).setValues(values);
-    SpreadsheetApp.flush();
-
-    const confirmed = countExistingModelRows(sheet, dealerCode, reportDate);
-    if (confirmed < MIN_EXPECTED_MODEL_ROWS) {
-      throw new Error('Submission write could not be verified on the server. Expected model rows were not found.');
-    }
 
     clearSubmissionUnlock(dealerCode, reportDate);
 
     return jsonResponse({
       success: true,
       appended: appended.length,
-      verified_model_rows: confirmed,
-      dealer_code: dealerCode,
-      report_date: reportDate,
-      message: `${appended.length} rows written and verified for dealer ${dealerCode}`,
+      message: `${appended.length} rows written for dealer ${rows[0].dealer_code}`,
     });
 
   } catch (err) {
     return jsonResponse({ error: err.message }, 500);
-  } finally {
-    try { lock.releaseLock(); } catch (releaseErr) {}
   }
 }
 
@@ -313,25 +290,6 @@ function coerceDailyValue(val) {
   // Forecast remains protected separately and is not coerced here.
   if (val === '' || val === null || val === undefined) return 0;
   return safeInt(val);
-}
-
-
-function countExistingModelRows(sheet, dealerCode, reportDate) {
-  const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return 0;
-  const data = sheet.getRange(2, 1, lastRow - 1, COLUMNS.length).getValues();
-  const dealerCol = COLUMNS.indexOf('dealer_code');
-  const dateCol = COLUMNS.indexOf('report_date');
-  const modelCol = COLUMNS.indexOf('model_bucket');
-  const models = {};
-  for (let i = 0; i < data.length; i++) {
-    if (String(data[i][dealerCol] || '').trim() === String(dealerCode).trim()
-        && normaliseSheetDate(data[i][dateCol]) === String(reportDate).trim()) {
-      const model = String(data[i][modelCol] || '').trim();
-      if (model) models[model] = true;
-    }
-  }
-  return Object.keys(models).length;
 }
 
 function hasExistingSubmissionRows(sheet, dealerCode, reportDate) {

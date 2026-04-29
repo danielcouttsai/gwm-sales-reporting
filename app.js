@@ -12,7 +12,6 @@ const GWM_CONFIG = {
   scriptUrl: 'https://script.google.com/macros/s/AKfycbxh7-IUcOe6tGrkCqK1sYrzb4LBhPoiwwePqkEd_sab2vAUGihrEGIer2Gm5VlUFH14sA/exec',
   region: 'Southern Region',
   cutoffHour: 10,   // Submissions after 10:00am are flagged late
-  requireSundayReports: false, // false = Sunday is skipped in catch-up logic
 };
 
 /* ── Dealer list ─────────────────────────────────────────── */
@@ -93,44 +92,13 @@ function nowTimestamp() {
 }
 
 /* Reporting day helper
-   Daily reporting is retrospective: the report completed today is for the last
-   required trading/reporting day, not today.
-   Example: Tuesday reports Monday. If Sunday reporting is disabled, Monday
-   reports Saturday because Sunday is intentionally skipped.
+   Daily submission window resets at 7:00am local time.
+   Before 7:00am, the input form still belongs to the previous report day.
 */
-function toISODateLocal(d) {
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-
-function isSundayISO(iso) {
-  const d = new Date(`${iso}T00:00:00`);
-  return d.getDay() === 0;
-}
-
-function isoAddDaysGlobal(iso, days) {
-  const d = new Date(`${iso}T00:00:00`);
-  d.setDate(d.getDate() + days);
-  return toISODateLocal(d);
-}
-
-function isRequiredReportDateISO(iso) {
-  if (!iso) return false;
-  if (GWM_CONFIG.requireSundayReports === false && isSundayISO(iso)) return false;
-  return true;
-}
-
-function previousRequiredReportDateISO(fromDate = new Date()) {
-  const d = new Date(fromDate);
-  d.setDate(d.getDate() - 1);
-  let iso = toISODateLocal(d);
-  while (!isRequiredReportDateISO(iso)) {
-    iso = isoAddDaysGlobal(iso, -1);
-  }
-  return iso;
-}
-
 function reportingDateISO() {
-  return previousRequiredReportDateISO(new Date());
+  const d = new Date();
+  if (d.getHours() < 7) d.setDate(d.getDate() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
 function monthKeyFromISO(iso) {
@@ -177,37 +145,6 @@ function showToast(msg, type = 'default', duration = 3500) {
   toast._timer = setTimeout(() => toast.classList.remove('show'), duration);
 }
 
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function normaliseReportDateValue(value) {
-  return String(value || '').slice(0, 10).trim();
-}
-
-function rowsConfirmSaved(rows, dealerCode, reportDate) {
-  const matches = (rows || []).filter(r =>
-    String(r.dealer_code || '').trim() === dealerCode &&
-    normaliseReportDateValue(r.report_date) === reportDate
-  );
-  const uniqueModels = new Set(matches.map(r => String(r.model_bucket || '').trim()).filter(Boolean));
-  return matches.length >= MODEL_BUCKETS.length && uniqueModels.size >= MODEL_BUCKETS.length;
-}
-
-async function verifySubmissionSaved(dealerCode, reportDate, attempts = 8) {
-  if (!GWM_CONFIG.scriptUrl) return true;
-
-  for (let i = 0; i < attempts; i++) {
-    await sleep(i === 0 ? 900 : 800);
-    const data = await fetchRows({ dealer: dealerCode, date: reportDate, include_controls: '1', _ts: Date.now() });
-    const rows = Array.isArray(data) ? data : (data.rows || []);
-    if (rowsConfirmSaved(rows, dealerCode, reportDate)) return true;
-  }
-
-  throw new Error('Save could not be verified. The system did not find the submitted dealer/date after writing. Do not resubmit blindly; refresh or contact OEM support so duplicates are not created.');
-}
-
 /* ── API call (POST to Apps Script) ─────────────────────── */
 async function postRows(rows) {
   const url = GWM_CONFIG.scriptUrl;
@@ -234,10 +171,6 @@ async function postRows(rows) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ rows }),
   });
-
-  // Production safety: Apps Script no-cors POST cannot expose its response to the browser.
-  // Therefore the UI must re-read the sheet and only continue once the saved record exists.
-  await verifySubmissionSaved(dealerCode, reportDate);
   return { ok: true };
 }
 

@@ -158,26 +158,7 @@
   </div>
 
   <!-- Step 1 -->
-  
-    <div class="step-card">
-      <div class="step-head" onclick="toggleStep(this)">
-        <div class="step-num">!</div>
-        <div class="step-title">Production Safety Rules</div>
-        <div class="step-toggle">⌄</div>
-      </div>
-      <div class="step-body open">
-        <h3>Current behaviour</h3>
-        <ul>
-          <li><strong>Retrospective reporting:</strong> dealers submit the previous required reporting day.</li>
-          <li><strong>Missed-day lock:</strong> the first missing required date is forced before the current date opens.</li>
-          <li><strong>Sunday skipped:</strong> Sundays are not required unless <code>requireSundayReports</code> is changed to <code>true</code> in <code>app.js</code>.</li>
-          <li><strong>Backend verification:</strong> the browser re-reads the sheet after POST and only shows success once all model rows are found.</li>
-          <li><strong>Server protection:</strong> Code.gs uses a script lock and bulk write to reduce duplicate or partial submissions.</li>
-        </ul>
-      </div>
-    </div>
-
-    <div class="step-card">
+  <div class="step-card">
     <div class="step-head" onclick="toggleStep(1)">
       <div class="step-num" id="num1">1</div>
       <div class="step-title">Create the Google Sheet</div>

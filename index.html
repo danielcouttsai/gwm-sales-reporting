@@ -399,8 +399,6 @@
     .grid-toggle-mobile { display:none; }
     .unlock-banner { display:none; background:#FFF3E0; border:1px solid #FFCC80; border-left:3px solid #C84B00; color:#7B4800; padding:10px 14px; font-size:12px; font-weight:700; margin-bottom:14px; }
     .submitted-banner { display:none; background:#E8F5E9; border:1px solid #A5D6A7; border-left:3px solid #2E7D32; color:#1B5E20; padding:10px 14px; font-size:12px; font-weight:700; margin-bottom:14px; }
-    .missed-day-banner { display:none; background:#FFEBEE; border:1px solid #EF9A9A; border-left:3px solid #C41230; color:#7f0016; padding:12px 14px; font-size:12px; font-weight:800; margin-bottom:14px; line-height:1.55; }
-    .missed-day-banner span { color:#111; }
 </style>
 </head>
 <body>
@@ -428,14 +426,9 @@
 <main class="main-content" id="main-content">
 
   <!-- Date context bar -->
-  <div style="background:#111;color:rgba(255,255,255,0.55);font-size:10px;font-weight:800;letter-spacing:0.14em;text-transform:uppercase;padding:9px 20px;margin-bottom:16px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:center;">
-    <span>Reporting For: <strong style="color:#fff;" id="ctx-report-date">—</strong></span>
-    <span>Entered On: <strong style="color:#fff;" id="ctx-entered-date">—</strong></span>
-    <span>Status: <strong style="color:#fff;" id="ctx-report-state">Current required report</strong></span>
-    <span>Sunday Rule: <strong style="color:#fff;" id="ctx-sunday-rule">Sunday skipped</strong></span>
-  </div>
-  <div style="background:#fff;border:1px solid #DCDCDC;border-left:3px solid #C41230;color:#555;font-size:12px;font-weight:700;padding:10px 14px;margin-bottom:16px;">
-    Daily reporting is retrospective: today you submit the previous required reporting day. If a dealer has missed an earlier required day, that missed date is locked in first and must be completed before the current report opens.
+  <div style="background:#111;color:rgba(255,255,255,0.45);font-size:10px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;padding:7px 20px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">
+    <span>Report Date: <strong style="color:#fff;" id="ctx-report-date">—</strong></span>
+    <span style="color:rgba(255,255,255,0.3);font-weight:500;letter-spacing:0.06em;text-transform:none;font-size:11px;">Submit before 10:00 AM</span>
   </div>
 
   <!-- Alert banner (validation / late warning) -->
@@ -455,9 +448,8 @@
 
   <!-- ── Form ───────────────────────────────────────────── -->
   <form id="sales-form" novalidate>
-    <div class="unlock-banner" id="unlock-banner">OEM has reopened this dealer/date submission. Existing data has been restored, update and resubmit to overwrite the prior version.</div>
-    <div class="missed-day-banner" id="missed-day-banner">⚠ Missed reporting day detected. You are now completing <span id="missed-day-label">the missed day</span>. After submission, the system verifies the save and then moves to the next required reporting day.</div>
-    <div class="submitted-banner" id="submitted-banner">✓ Submitted for this reporting date. Contact OEM to reopen if changes are required.</div>
+    <div class="unlock-banner" id="unlock-banner">OEM has reopened this dealer's submission for today. Existing data has been restored, update and resubmit to overwrite the prior version.</div>
+    <div class="submitted-banner" id="submitted-banner">✓ Submitted for today. Contact OEM to reopen if changes are required.</div>
 
     <!-- Dealer details card -->
     <div class="card">
@@ -642,8 +634,6 @@ let unlockedDealerCodes = new Set();
 let existingSubmissionCache = {};
 let quickActivityLog = [];
 let activeReportDate = reportingDateISO();
-let forcedMissingReportDate = null;
-let selectedDealerSubmittedDates = new Set();
 let draftSaveTimer = null;
 let formOpenedAt = Date.now();
 let manualGridEditCount = 0;
@@ -664,17 +654,21 @@ function init() {
   if (savedName) document.getElementById('submitted-by').value = savedName;
 
   populateDealerDropdown();
-  refreshAvailableDealers().then(async () => {
+  refreshAvailableDealers().then(() => {
     const savedDealer = localStorage.getItem('gwm_dealer');
     const sel = document.getElementById('dealer-select');
     if (savedDealer && Array.from(sel.options).some(o => o.value === savedDealer)) {
       sel.value = savedDealer;
-      await handleDealerChanged();
+      loadForecastForSelectedDealer().then(loadExistingSubmissionIfUnlocked).then(unlocked => { if (!unlocked) return loadDraftForSelectedDealer(); });
     }
     updateSubmitPreview();
   });
 
-  document.getElementById('dealer-select').addEventListener('change', handleDealerChanged);
+  document.getElementById('dealer-select').addEventListener('change', () => {
+    prepareDealerWorkspace();
+    updateSubmitPreview();
+    loadForecastForSelectedDealer().then(loadExistingSubmissionIfUnlocked).then(unlocked => { if (!unlocked) return loadDraftForSelectedDealer(); });
+  });
   document.getElementById('submitted-by').addEventListener('input', () => { updateSubmitPreview(); queueDraftSave(); });
   document.getElementById('sales-form').addEventListener('submit', handleSubmit);
   scheduleDealerResetRefresh();
@@ -686,12 +680,14 @@ function populateDealerDropdown() {
   const current = sel.value;
   sel.innerHTML = '<option value="">— Select dealer —</option>';
 
-  DEALERS.forEach(d => {
-    const opt = document.createElement('option');
-    opt.value = d.code;
-    opt.textContent = `${d.code} – ${d.name}`;
-    sel.appendChild(opt);
-  });
+  DEALERS
+    .filter(d => !submittedDealerCodes.has(d.code) || unlockedDealerCodes.has(d.code))
+    .forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.code;
+      opt.textContent = `${d.code} – ${d.name}`;
+      sel.appendChild(opt);
+    });
 
   if (current && Array.from(sel.options).some(o => o.value === current)) sel.value = current;
 }
@@ -747,116 +743,10 @@ function scheduleDealerResetRefresh() {
   next.setHours(7, 0, 0, 0);
   if (next <= now) next.setDate(next.getDate() + 1);
   setTimeout(() => {
-    activeReportDate = reportingDateISO();
-    forcedMissingReportDate = null;
     setDateFields();
     refreshAvailableDealers();
     scheduleDealerResetRefresh();
   }, next - now + 1000);
-}
-
-
-/* ── Missed reporting day control ────────────────────────── */
-function isoAddDays(iso, days) {
-  const d = new Date(`${iso}T00:00:00`);
-  d.setDate(d.getDate() + days);
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-
-function isoCompare(a, b) {
-  return String(a || '').localeCompare(String(b || ''));
-}
-
-function isSkippedReportDate(iso) {
-  return typeof isRequiredReportDateISO === 'function' ? !isRequiredReportDateISO(iso) : false;
-}
-
-function nextRequiredReportDateISO(iso) {
-  let cursor = isoAddDays(iso, 1);
-  while (isSkippedReportDate(cursor)) cursor = isoAddDays(cursor, 1);
-  return cursor;
-}
-
-function uniqueSubmittedDates(rows) {
-  return new Set((rows || [])
-    .map(r => String(r.report_date || '').slice(0, 10))
-    .filter(Boolean));
-}
-
-function findForcedMissingDateForDealer(rows, currentReportDate) {
-  const dates = Array.from(uniqueSubmittedDates(rows)).sort();
-  if (!dates.length) return null;
-
-  const submitted = new Set(dates);
-  if (submitted.has(currentReportDate)) return null;
-
-  const latestBeforeCurrent = dates.filter(d => isoCompare(d, currentReportDate) < 0).pop();
-  if (!latestBeforeCurrent) return null;
-
-  // Catch-up window is capped at roughly 14 required reporting days so a dealer is not forced through months of backfill.
-  const oldestAllowed = isoAddDays(currentReportDate, -21);
-  let cursor = isoCompare(latestBeforeCurrent, oldestAllowed) < 0 ? oldestAllowed : nextRequiredReportDateISO(latestBeforeCurrent);
-
-  while (isoCompare(cursor, currentReportDate) <= 0) {
-    if (!isSkippedReportDate(cursor) && !submitted.has(cursor)) return cursor;
-    cursor = nextRequiredReportDateISO(cursor);
-  }
-  return null;
-}
-
-async function getRowsForSelectedDealer(dealerCode) {
-  if (!dealerCode) return [];
-  if (!GWM_CONFIG.scriptUrl) {
-    return JSON.parse(localStorage.getItem('gwm_submissions') || '[]').filter(r => String(r.dealer_code || '').trim() === dealerCode);
-  }
-  const data = await fetchRows({ dealer: dealerCode });
-  return Array.isArray(data) ? data : (data.rows || []);
-}
-
-function applyForcedMissingDate(dateISO) {
-  forcedMissingReportDate = dateISO || null;
-  activeReportDate = forcedMissingReportDate || reportingDateISO();
-  setDateFields();
-  updateSubmitPreview();
-
-  const banner = document.getElementById('missed-day-banner');
-  const label = document.getElementById('missed-day-label');
-  if (!banner) return;
-
-  const submittedBanner = document.getElementById('submitted-banner');
-
-  if (forcedMissingReportDate) {
-    if (label) label.textContent = formatDate(forcedMissingReportDate);
-    banner.style.display = 'block';
-    if (submittedBanner) submittedBanner.style.display = 'none';
-  } else {
-    banner.style.display = 'none';
-    const dealerCode = document.getElementById('dealer-select').value;
-    if (submittedBanner) {
-      submittedBanner.style.display = dealerCode && selectedDealerSubmittedDates.has(activeReportDate) && !unlockedDealerCodes.has(dealerCode) ? 'block' : 'none';
-    }
-  }
-}
-
-async function handleDealerChanged() {
-  prepareDealerWorkspace();
-  const dealerCode = document.getElementById('dealer-select').value;
-
-  try {
-    const rows = await getRowsForSelectedDealer(dealerCode);
-    selectedDealerSubmittedDates = uniqueSubmittedDates(rows);
-    const missingDate = findForcedMissingDateForDealer(rows, reportingDateISO());
-    applyForcedMissingDate(missingDate);
-  } catch (err) {
-    console.warn('Missed day check failed:', err);
-    selectedDealerSubmittedDates = new Set();
-    applyForcedMissingDate(null);
-  }
-
-  updateSubmitPreview();
-  await loadForecastForSelectedDealer();
-  const unlocked = await loadExistingSubmissionIfUnlocked();
-  if (!unlocked) await loadDraftForSelectedDealer();
 }
 
 /* ── Model grid builder ──────────────────────────────────── */
@@ -992,10 +882,6 @@ function prepareDealerWorkspace() {
   formOpenedAt = Date.now();
   const unlockBanner = document.getElementById('unlock-banner');
   if (unlockBanner) unlockBanner.style.display = 'none';
-  const missedBanner = document.getElementById('missed-day-banner');
-  if (missedBanner) missedBanner.style.display = 'none';
-  const submittedBanner = document.getElementById('submitted-banner');
-  if (submittedBanner) submittedBanner.style.display = 'none';
   setDraftStatus('Select dealer to enable draft save');
 }
 
@@ -1027,17 +913,11 @@ function setDirection(val) {
 
 /* ── Date / clock ────────────────────────────────────────── */
 function setDateFields() {
-  const today = activeReportDate || reportingDateISO();
+  const today = reportingDateISO();
   document.getElementById('report-date').value  = formatDate(today);
   document.getElementById('submit-time').value  = new Date().toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: true });
   const ctx = document.getElementById('ctx-report-date');
   if (ctx) ctx.textContent = formatDate(today);
-  const entered = document.getElementById('ctx-entered-date');
-  if (entered) entered.textContent = formatDate(todayISO());
-  const state = document.getElementById('ctx-report-state');
-  if (state) state.textContent = forcedMissingReportDate ? 'Catch-up required' : 'Current required report';
-  const sunday = document.getElementById('ctx-sunday-rule');
-  if (sunday) sunday.textContent = GWM_CONFIG.requireSundayReports === false ? 'Sunday skipped' : 'Sunday required';
 }
 
 function startClock() {
@@ -1064,7 +944,7 @@ function updateSubmitPreview() {
   const dealer = DEALERS.find(d => d.code === code);
   document.getElementById('submit-preview-dealer').textContent =
     dealer ? `${dealer.code} – ${dealer.name}` : '—';
-  document.getElementById('submit-preview-date').textContent = formatDate(activeReportDate || reportingDateISO());
+  document.getElementById('submit-preview-date').textContent = formatDate(reportingDateISO());
 }
 
 /* ── Form validation ─────────────────────────────────────── */
@@ -1076,8 +956,8 @@ function validate() {
   if (!dealerEl.value) {
     errors.push('Please select a dealer.');
     dealerEl.classList.add('error');
-  } else if (selectedDealerSubmittedDates.has(activeReportDate || reportingDateISO()) && !unlockedDealerCodes.has(dealerEl.value)) {
-    errors.push('This dealer has already submitted for the selected report date. OEM can reopen it from the dashboard if changes are required.');
+  } else if (submittedDealerCodes.has(dealerEl.value) && !unlockedDealerCodes.has(dealerEl.value)) {
+    errors.push('This dealer has already submitted today. It will reopen automatically from 7:00 AM tomorrow, or OEM can reopen it from the dashboard.');
     dealerEl.classList.add('error');
   } else { dealerEl.classList.remove('error'); }
 
@@ -1097,7 +977,7 @@ function buildRows() {
   const dealerCode = document.getElementById('dealer-select').value;
   const dealer     = DEALERS.find(d => d.code === dealerCode);
   const ts         = nowTimestamp();
-  const date       = activeReportDate || reportingDateISO();
+  const date       = reportingDateISO();
   const late       = isLate();
   const name       = document.getElementById('submitted-by').value.trim();
   const direction  = selectedDirection;
@@ -1158,10 +1038,10 @@ async function handleSubmit(e) {
     if (!GWM_CONFIG.scriptUrl) {
       // Offline / demo mode — simulate latency
       await new Promise(r => setTimeout(r, 900));
-      await handleSuccess(rows);
+      handleSuccess(rows);
     } else {
       await postRows(rows);
-      await handleSuccess(rows);
+      handleSuccess(rows);
     }
   } catch (err) {
     btn.disabled       = false;
@@ -1173,7 +1053,7 @@ async function handleSubmit(e) {
   }
 }
 
-async function handleSuccess(rows) {
+function handleSuccess(rows) {
   // Save dealer & name for next visit
   localStorage.setItem('gwm_dealer', document.getElementById('dealer-select').value);
   localStorage.setItem('gwm_name',   document.getElementById('submitted-by').value.trim());
@@ -1181,14 +1061,13 @@ async function handleSuccess(rows) {
   clearDraftForSelectedDealer();
   formOpenedAt = Date.now();
   const submittedDealer = document.getElementById('dealer-select').value;
-  const date = activeReportDate || reportingDateISO();
   submittedDealerCodes.add(submittedDealer);
-  selectedDealerSubmittedDates.add(date);
   unlockedDealerCodes.delete(submittedDealer);
-  setLocalUnlock(submittedDealer, date, false);
+  setLocalUnlock(submittedDealer, reportingDateISO(), false);
 
-  // Save to local history (for offline dashboard demo and instant catch-up recalculation)
+  // Save to local history (for offline dashboard demo)
   let history = JSON.parse(localStorage.getItem('gwm_submissions') || '[]');
+  const date = reportingDateISO();
   history = history.filter(r => !(r.report_date === date && r.dealer_code === submittedDealer));
   rows.forEach(r => history.push(r));
   // Keep last 2000 rows
@@ -1199,29 +1078,16 @@ async function handleSuccess(rows) {
   document.getElementById('sales-form').classList.add('hidden');
   const totEnq  = rows.reduce((a,r) => a + safeInt(r.enquiry), 0);
   const totSold = rows.reduce((a,r) => a + safeInt(r.new_sold), 0);
-  let refreshedRows = Array.from(selectedDealerSubmittedDates).map(d => ({ report_date: d }));
-  if (GWM_CONFIG.scriptUrl) {
-    try {
-      refreshedRows = await getRowsForSelectedDealer(submittedDealer);
-      selectedDealerSubmittedDates = uniqueSubmittedDates(refreshedRows);
-    } catch (err) {
-      console.warn('Post-submit refresh failed:', err);
-    }
-  }
-  const nextMissing = findForcedMissingDateForDealer(refreshedRows, reportingDateISO());
-  const nextMsg = nextMissing
-    ? ` Next required catch-up date: ${formatDate(nextMissing)}.`
-    : ' This dealer is now up to date for the current required reporting day.';
   document.getElementById('success-msg').textContent =
-    `Submitted ${rows.length} model rows for ${formatDate(date)} — ${totEnq} enquiries, ${totSold} new sold. ` +
-    (rows[0].is_late ? '(Flagged as late submission). ' : '') + nextMsg;
+    `Submitted ${rows.length} model rows — ${totEnq} enquiries, ${totSold} new sold. ` +
+    (rows[0].is_late ? '(Flagged as late submission)' : '');
   document.getElementById('success-screen').classList.remove('hidden');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 /* ── Forecast persistence ────────────────────────────────── */
 function forecastStorageKey(dealerCode) {
-  return `gwm_forecast_${monthKeyFromISO(activeReportDate || reportingDateISO())}_${dealerCode}`;
+  return `gwm_forecast_${monthKeyFromISO(reportingDateISO())}_${dealerCode}`;
 }
 
 function getForecastInputs() {
@@ -1274,7 +1140,7 @@ async function loadForecastForSelectedDealer() {
     if (GWM_CONFIG.scriptUrl) {
       const data = await fetchRows({ dealer: dealerCode });
       const rows = Array.isArray(data) ? data : (data.rows || []);
-      const monthKey = monthKeyFromISO(activeReportDate || reportingDateISO());
+      const monthKey = monthKeyFromISO(reportingDateISO());
       const latest = {};
       rows
         .filter(r => String(r.report_date || '').slice(0, 7) === monthKey)
@@ -1441,12 +1307,12 @@ function updateQuickSummary() {
 function escapeHtml(value) {
   return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
-function draftStorageKey(dealerCode) { return `gwm_draft_${activeReportDate || reportingDateISO()}_${dealerCode || 'no_dealer'}`; }
+function draftStorageKey(dealerCode) { return `gwm_draft_${reportingDateISO()}_${dealerCode || 'no_dealer'}`; }
 function queueDraftSave() { clearTimeout(draftSaveTimer); draftSaveTimer = setTimeout(saveDraftForSelectedDealer, 250); }
 function saveDraftForSelectedDealer() {
   const dealerCode = document.getElementById('dealer-select').value;
   if (!dealerCode) return;
-  const payload = { report_date: activeReportDate || reportingDateISO(), dealer_code: dealerCode, submitted_by: document.getElementById('submitted-by').value.trim(), direction: selectedDirection, gridData, quickActivityLog, manualGridEditCount, formOpenedAt, lastUpdatedAt, saved_at: new Date().toISOString() };
+  const payload = { report_date: reportingDateISO(), dealer_code: dealerCode, submitted_by: document.getElementById('submitted-by').value.trim(), direction: selectedDirection, gridData, quickActivityLog, manualGridEditCount, formOpenedAt, lastUpdatedAt, saved_at: new Date().toISOString() };
   localStorage.setItem(draftStorageKey(dealerCode), JSON.stringify(payload));
   setDraftStatus('Draft saved ' + new Date().toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit', hour12:true }));
 }
@@ -1528,12 +1394,9 @@ function resetForm() {
   document.getElementById('sales-form').classList.remove('hidden');
   document.getElementById('success-screen').classList.add('hidden');
   document.getElementById('alert-banner').className = 'alert hidden';
-  activeReportDate = reportingDateISO();
-  forcedMissingReportDate = null;
   setDateFields();
   checkLateStatus();
   updateSubmitPreview();
-  refreshAvailableDealers().then(handleDealerChanged);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 </script>
